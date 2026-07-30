@@ -105,6 +105,15 @@ func runOneTurn(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, message, ses
 }
 
 func interactiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, sessionKey string) {
+	if cliui.PanesEnabled() {
+		if err := paneInteractiveMode(agentLoop, msgBus, sessionKey); err != nil {
+			fmt.Printf("Pane UI error: %v\nFalling back to readline...\n", err)
+		} else {
+			fmt.Println("Goodbye!")
+			return
+		}
+	}
+
 	prompt := fmt.Sprintf("%s You: ", internal.Logo)
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -149,6 +158,26 @@ func interactiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, session
 		}
 		fmt.Fprintln(os.Stdout)
 	}
+}
+
+func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, sessionKey string) error {
+	ui, err := cliui.NewPaneUI(fmt.Sprintf("%s You: ", internal.Logo))
+	if err != nil {
+		return err
+	}
+	return ui.Run(func(msg string) error {
+		streamer := cliui.NewPaneStreamer(ui)
+		streamer.Start()
+		msgBus.SetStreamDelegate(cliui.NewPaneStreamDelegate(streamer))
+		ctx := context.Background()
+		response, err := agentLoop.ProcessDirect(ctx, msg, sessionKey)
+		if err != nil {
+			streamer.Cancel(ctx)
+			return err
+		}
+		streamer.Finish(response)
+		return nil
+	})
 }
 
 func simpleInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, sessionKey string) {

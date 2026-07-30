@@ -1,18 +1,48 @@
-# CLI live display (progress · tps · streaming)
+# CLI live display & panes
 
-Agent CLI (`picoclaw agent`) now shows:
+## One-shot (`picoclaw agent -m '…'`)
 
-1. **Progress bar** on stderr while waiting for the first token (`[==>   ] Thinking…`)
-2. **Token streaming** — deltas printed as they arrive (provider streaming when
-   enabled; otherwise a rune typewriter fallback)
-3. **tps footer** — `42 tok · 28.5 tps` (tokens ≈ ceil(runes/4))
+1. Progress bar on stderr while waiting
+2. Streamed tokens to stdout
+3. Footer `N tok · X.X tps`
 
-## Controls
+## Interactive panes (TTY)
+
+When stdin/stdout are a terminal (disable with `PICOCLAW_PANES=0`):
+
+```
+┌─────────────────────────────────────────┐
+│ stats (1 line: tps / progress / focus)  │
+├─────────────────────────────────────────┤
+│ result (scrollable, searchable)         │
+│ …                                       │
+├─────────────────────────────────────────┤
+│ > You: input                            │
+└─────────────────────────────────────────┘
+```
+
+### Keys
+
+| Key | Action |
+|-----|--------|
+| Tab / Shift+Tab | Toggle focus: input ↔ result |
+| Enter | Submit (input focus) |
+| ↑↓ / j k | Scroll result |
+| PgUp / PgDn / u d | Page / half-page |
+| g / G | Top / bottom |
+| `/` then pattern + Enter | Vim-like search |
+| n / N | Next / previous match |
+| Esc | Clear search / cancel search entry |
+| Ctrl+C | Quit |
+
+Resize (SIGWINCH) rewraps content and redraws the full frame.
+
+## Env
 
 | Env | Effect |
 |-----|--------|
-| `PICOCLAW_GLAMOUR=0` | Disable markdown glamour (batch path / helpers) |
-| Model `streaming.enabled` | Opt-in provider streaming (CLI enables for default model) |
+| `PICOCLAW_PANES=0` | Use classic readline instead of panes |
+| `PICOCLAW_GLAMOUR=0` | Disable glamour markdown helpers |
 
 ## Tests
 
@@ -20,4 +50,4 @@ Agent CLI (`picoclaw agent`) now shows:
 go test -race ./cmd/picoclaw/internal/cliui/ ./cmd/picoclaw/internal/agent/
 ```
 
-CI: `.github/workflows/cliui.yml` (plus existing `pr.yml`).
+CI: `.github/workflows/cliui.yml` (+ `pr.yml`).
