@@ -40,7 +40,7 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 		cfg.Agents.Defaults.ModelName = model
 	}
 
-	if err := cliui.EnableCLIAgentStreaming(cfg); err != nil {
+	if err = cliui.EnableCLIAgentStreaming(cfg); err != nil {
 		return fmt.Errorf("enable cli streaming: %w", err)
 	}
 
