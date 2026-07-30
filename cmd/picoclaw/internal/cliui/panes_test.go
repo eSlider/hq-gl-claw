@@ -11,13 +11,13 @@ func TestPaneLayoutSlots(t *testing.T) {
 	if stats != 1 || input != 1 {
 		t.Fatalf("stats=%d input=%d want 1 and 1", stats, input)
 	}
-	if content != 22 {
-		t.Fatalf("content=%d want 22", content)
+	if content != 21 {
+		t.Fatalf("content=%d want 21", content)
 	}
 	p.Resize(40, 5)
 	_, content, _ = p.Slots()
-	if content != 3 {
-		t.Fatalf("content after resize=%d want 3", content)
+	if content != 2 {
+		t.Fatalf("content after resize=%d want 2", content)
 	}
 	p.Resize(40, 2)
 	_, content, _ = p.Slots()
@@ -46,7 +46,7 @@ func TestPaneFocusTabCycle(t *testing.T) {
 }
 
 func TestPaneScrollWhenResultFocused(t *testing.T) {
-	p := NewPaneSession(20, 6) // content height = 4
+	p := NewPaneSession(20, 7) // content height = 4
 	p.SetContent(strings.Repeat("line\n", 20))
 	p.HandleKey(KeyTab) // result
 	if p.Scroll() != 0 {
@@ -92,7 +92,7 @@ func TestPaneScrollClampOnResize(t *testing.T) {
 
 func TestPaneVimSearch(t *testing.T) {
 	// Small viewport so matches require scrolling into view.
-	p := NewPaneSession(40, 4) // content height = 2
+	p := NewPaneSession(40, 5) // content height = 2
 	p.SetContent("alpha\nbeta foo\ngamma\nfoo bar\nzeta")
 	p.HandleKey(KeyTab) // result
 	p.HandleKey(KeyRune('/'))
@@ -130,6 +130,7 @@ func TestPaneRenderHasThreeRegions(t *testing.T) {
 	p.SetStats("10 tok · 5.0 tps")
 	p.SetContent("hello world\nsecond line")
 	p.SetInput("ask me")
+	p.SetStatusBar("✓ ↑10 ↓5 · 1.0s · 5.0 tps")
 	out := p.Render()
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != 8 {
@@ -138,10 +139,13 @@ func TestPaneRenderHasThreeRegions(t *testing.T) {
 	if !strings.Contains(lines[0], "10 tok") {
 		t.Fatalf("stats line=%q", lines[0])
 	}
-	if !strings.Contains(lines[len(lines)-1], "ask me") {
-		t.Fatalf("input line=%q", lines[len(lines)-1])
+	if !strings.Contains(lines[len(lines)-2], "ask me") {
+		t.Fatalf("input line=%q", lines[len(lines)-2])
 	}
-	body := strings.Join(lines[1:len(lines)-1], "\n")
+	if !strings.Contains(lines[len(lines)-1], "↑10") {
+		t.Fatalf("status line=%q", lines[len(lines)-1])
+	}
+	body := strings.Join(lines[1:len(lines)-2], "\n")
 	if !strings.Contains(body, "hello") {
 		t.Fatalf("content missing: %q", body)
 	}

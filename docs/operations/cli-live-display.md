@@ -4,22 +4,29 @@
 
 1. Progress bar on stderr while waiting
 2. Streamed tokens to stdout
-3. Footer `N tok · X.X tps`
+3. Footer: `✓ ↑in ↓out · elapsed · tps · ttft …`
+   - Exact counts when the provider reports usage (`SetTurnUsage`)
+   - `↑~` / `↓~` when estimated (`ceil(runes/4)`)
 
 ## Interactive panes (TTY)
 
-When stdin/stdout are a terminal (disable with `PICOCLAW_PANES=0`):
+Inspired by [go-ollama TUI](https://github.com/eSlider/go-ollama/blob/main/examples/tui/main.go):
 
 ```
-┌─────────────────────────────────────────┐
-│ stats (1 line: tps / progress / focus)  │
-├─────────────────────────────────────────┤
-│ result (scrollable, searchable)         │
-│ …                                       │
-├─────────────────────────────────────────┤
-│ > You: input                            │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ top: progress / focus hints                              │
+├──────────────────────────────────────────────────────────┤
+│ result (scrollable, searchable)                          │
+│ …                                                        │
+├──────────────────────────────────────────────────────────┤
+│ > You: input                                             │
+├──────────────────────────────────────────────────────────┤
+│ ✓ ↑1234 ↓567 · 2.30s · 45.2 tps · Σ ↑5.2k ↓1.1k · 3 turns│
+└──────────────────────────────────────────────────────────┘
 ```
+
+Bottom status (overall): last turn ↑sent / ↓received, wall time, completion tps,
+optional ttft, plus session Σ totals.
 
 ### Keys
 

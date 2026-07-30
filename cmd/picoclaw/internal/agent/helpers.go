@@ -92,7 +92,7 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 func runOneTurn(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, message, sessionKey string) error {
 	display := cliui.NewLiveDisplay(os.Stdout, os.Stderr, internal.Logo)
 	msgBus.SetStreamDelegate(cliui.NewStreamDelegate(display))
-	display.Start()
+	display.StartPrompt(message)
 
 	ctx := context.Background()
 	response, err := agentLoop.ProcessDirect(ctx, message, sessionKey)
@@ -167,7 +167,7 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 	}
 	return ui.Run(func(msg string) error {
 		streamer := cliui.NewPaneStreamer(ui)
-		streamer.Start()
+		streamer.Start(msg)
 		msgBus.SetStreamDelegate(cliui.NewPaneStreamDelegate(streamer))
 		ctx := context.Background()
 		response, err := agentLoop.ProcessDirect(ctx, msg, sessionKey)

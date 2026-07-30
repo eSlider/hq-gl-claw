@@ -90,18 +90,19 @@ func TestLiveDisplay_StreamsDeltas(t *testing.T) {
 	}
 }
 
-func TestLiveDisplay_TypewriterFallback(t *testing.T) {
+func TestLiveDisplay_SetTurnUsageExact(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	d := NewLiveDisplay(&out, &errBuf, "🦞")
 	d.typeDelay = 0
-	d.Start()
-	d.Finish("abc")
+	d.StartPrompt("hello world")
+	d.SetTurnUsage(100, 40)
+	d.Finish("done")
 	got := out.String()
-	if !strings.Contains(got, "abc") {
-		t.Fatalf("missing typewriter text: %q", got)
+	if !strings.Contains(got, "↑100") || !strings.Contains(got, "↓40") {
+		t.Fatalf("expected exact usage in footer: %q", got)
 	}
-	if !strings.Contains(got, "tps") {
-		t.Fatalf("expected tps after fallback: %q", got)
+	if strings.Contains(got, "↑~") || strings.Contains(got, "↓~") {
+		t.Fatalf("exact usage should not use ~: %q", got)
 	}
 }
 

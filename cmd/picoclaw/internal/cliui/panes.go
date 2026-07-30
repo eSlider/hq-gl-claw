@@ -67,7 +67,8 @@ type PaneSession struct {
 	searchIdx     int
 	matchLine     int // current match line (-1 if none)
 
-	prompt string
+	prompt    string
+	statusBar string // bottom overall metrics line
 }
 
 // NewPaneSession creates a session with the given terminal size.
@@ -110,23 +111,41 @@ func (p *PaneSession) Stats() string {
 	}
 	return p.stats
 }
+
+func (p *PaneSession) StatusBar() string {
+	if p == nil {
+		return ""
+	}
+	return p.statusBar
+}
+
 func (p *PaneSession) Width() int  { return p.width }
 func (p *PaneSession) Height() int { return p.height }
 
-// Slots returns stats, content, and input row counts.
+// Slots returns stats, content, and input row counts (legacy 3-chrome without status).
+// Prefer Slots4.
 func (p *PaneSession) Slots() (stats, content, input int) {
-	stats, input = 1, 1
-	content = p.height - 2
+	stats, content, input, _ = p.Slots4()
+	return stats, content, input
+}
+
+// Slots4 returns top stats, content, input, and bottom status row counts.
+func (p *PaneSession) Slots4() (stats, content, input, status int) {
+	stats, input, status = 1, 1, 1
+	content = p.height - 3
 	if content < 1 {
 		content = 1
 	}
-	return stats, content, input
+	return stats, content, input, status
 }
 
 // ContentHeight is the viewport height for the result pane.
 func (p *PaneSession) ContentHeight() int {
-	_, c, _ := p.Slots()
-	return c
+	h := p.height - 3
+	if h < 1 {
+		return 1
+	}
+	return h
 }
 
 // MaxScroll is the maximum first-line index for the viewport.
@@ -153,8 +172,8 @@ func (p *PaneSession) Resize(width, height int) {
 	if width < 8 {
 		width = 8
 	}
-	if height < 3 {
-		height = 3
+	if height < 4 {
+		height = 4
 	}
 	p.width = width
 	p.height = height
@@ -162,9 +181,14 @@ func (p *PaneSession) Resize(width, height int) {
 	p.clampScroll()
 }
 
-// SetStats sets the one-line statistics header.
+// SetStats sets the one-line statistics header (progress / focus hints).
 func (p *PaneSession) SetStats(s string) {
 	p.stats = strings.ReplaceAll(s, "\n", " ")
+}
+
+// SetStatusBar sets the bottom overall metrics line.
+func (p *PaneSession) SetStatusBar(s string) {
+	p.statusBar = strings.ReplaceAll(s, "\n", " ")
 }
 
 // SetContent replaces result text and rewraps.
@@ -420,10 +444,10 @@ func (p *PaneSession) backspaceInput() {
 
 // Render returns a full-frame string with exactly Height lines (newline-separated).
 func (p *PaneSession) Render() string {
-	_, contentH, _ := p.Slots()
+	contentH := p.ContentHeight()
 	var b strings.Builder
 
-	// Stats
+	// Top: live progress / focus
 	b.WriteString(padTrim(p.decorateStats(), p.width))
 	b.WriteByte('\n')
 
@@ -442,7 +466,6 @@ func (p *PaneSession) Render() string {
 		if p.focus == FocusResult {
 			prefix = "│"
 		}
-		// prefix takes 1 col
 		bodyW := p.width - 1
 		if bodyW < 1 {
 			bodyW = 1
@@ -453,7 +476,11 @@ func (p *PaneSession) Render() string {
 	}
 
 	// Input / search
-	b.WriteString(padTrim(p.decorateBottom(), p.width))
+	b.WriteString(padTrim(p.decorateInput(), p.width))
+	b.WriteByte('\n')
+
+	// Bottom status bar (turn + session metrics)
+	b.WriteString(padTrim(p.decorateStatus(), p.width))
 	return b.String()
 }
 
@@ -469,10 +496,10 @@ func (p *PaneSession) decorateStats() string {
 	if base == "" {
 		base = "ready"
 	}
-	return fmt.Sprintf("%s  · %s · Tab focus  / search", base, focus)
+	return fmt.Sprintf("%s  · %s · Tab  /search", base, focus)
 }
 
-func (p *PaneSession) decorateBottom() string {
+func (p *PaneSession) decorateInput() string {
 	if p.focus == FocusSearch {
 		return "/" + p.searchQuery
 	}
@@ -481,6 +508,13 @@ func (p *PaneSession) decorateBottom() string {
 		mark = ">"
 	}
 	return mark + p.prompt + p.input
+}
+
+func (p *PaneSession) decorateStatus() string {
+	if p.statusBar != "" {
+		return p.statusBar
+	}
+	return "↑in ↓out · elapsed · tps · Tab focus"
 }
 
 func padTrim(s string, width int) string {

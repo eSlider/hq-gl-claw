@@ -38,6 +38,9 @@ type PaneUI struct {
 	quit     atomic.Bool
 	busy     atomic.Bool
 	oldState *term.State
+
+	session SessionMetrics
+	last    TurnMetrics
 }
 
 // NewPaneUI builds a pane UI bound to stdin/stdout.
@@ -51,6 +54,7 @@ func NewPaneUI(prompt string) (*PaneUI, error) {
 		sess.prompt = prompt
 	}
 	sess.SetStats("ready")
+	sess.SetStatusBar("↑in ↓out · elapsed · tps · waiting for first turn")
 	return &PaneUI{in: os.Stdin, out: os.Stdout, sess: sess}, nil
 }
 
@@ -173,16 +177,39 @@ func (ui *PaneUI) Run(onSubmit func(msg string) error) error {
 				ui.mu.Lock()
 				ui.sess.SetStats("error")
 				ui.sess.SetContent(err.Error())
+				ui.refreshStatusLocked("error")
 				ui.mu.Unlock()
 				ui.redraw()
 				continue
 			}
 			ui.mu.Lock()
 			ui.sess.focus = FocusInput
+			ui.refreshStatusLocked("input")
 			ui.mu.Unlock()
 			ui.redraw()
 		}
 	}
+}
+
+func (ui *PaneUI) refreshStatusLocked(focus string) {
+	ui.sess.SetStatusBar(FormatStatusBar(ui.last, ui.session, focus))
+}
+
+// applyTurnMetrics records a completed turn into session totals and status bar.
+func (ui *PaneUI) applyTurnMetrics(m TurnMetrics) {
+	ui.mu.Lock()
+	defer ui.mu.Unlock()
+	m.Streaming = false
+	ui.last = m
+	ui.session.AddTurn(m)
+	focus := "input"
+	switch ui.sess.Focus() {
+	case FocusResult:
+		focus = "result"
+	case FocusSearch:
+		focus = "search"
+	}
+	ui.refreshStatusLocked(focus)
 }
 
 // PaneStreamer streams tokens into the pane content area.
@@ -199,6 +226,13 @@ type PaneStreamer struct {
 	stopProg chan struct{}
 	progDone chan struct{}
 	bar      *ProgressBar
+
+	promptEst      int
+	inTokens       int
+	outTokens      int
+	inExact        bool
+	outExact       bool
+	metricsApplied bool
 }
 
 // NewPaneStreamer returns a Streamer bound to ui.
@@ -210,14 +244,34 @@ func NewPaneStreamer(ui *PaneUI) *PaneStreamer {
 	}
 }
 
-// Start begins the waiting progress animation on the stats line.
-func (s *PaneStreamer) Start() {
+// Start begins the waiting progress animation; prompt seeds ↑ estimate until usage arrives.
+func (s *PaneStreamer) Start(prompt string) {
 	s.mu.Lock()
 	s.startAt = time.Now()
+	s.promptEst = EstimateTokens(prompt)
+	s.inTokens = s.promptEst
+	s.inExact = false
+	s.outTokens = 0
+	s.outExact = false
+	s.metricsApplied = false
+	s.finished = false
+	s.streamed.Store(false)
 	s.stopProg = make(chan struct{})
 	s.progDone = make(chan struct{})
 	stop, done := s.stopProg, s.progDone
 	s.mu.Unlock()
+
+	s.ui.mu.Lock()
+	s.ui.last = TurnMetrics{
+		PromptTokens: s.promptEst,
+		PromptExact:  false,
+		Streaming:    true,
+		Elapsed:      0,
+	}
+	s.ui.refreshStatusLocked("input")
+	s.ui.mu.Unlock()
+	s.ui.requestRedraw()
+
 	go s.animateProgress(stop, done)
 }
 
@@ -234,13 +288,34 @@ func (s *PaneStreamer) animateProgress(stop <-chan struct{}, done chan struct{})
 			if s.streamed.Load() || s.finished {
 				continue
 			}
+			elapsed := time.Since(s.startAt)
+			s.mu.Lock()
+			m := s.liveMetricsLocked(elapsed, true)
+			s.mu.Unlock()
 			s.ui.mu.Lock()
 			s.ui.sess.SetStats(s.bar.Render(tick))
+			s.ui.last = m
+			s.ui.refreshStatusLocked("input")
 			s.ui.mu.Unlock()
 			s.ui.requestRedraw()
 			tick++
 		}
 	}
+}
+
+func (s *PaneStreamer) liveMetricsLocked(elapsed time.Duration, streaming bool) TurnMetrics {
+	m := TurnMetrics{
+		PromptTokens:     s.inTokens,
+		CompletionTokens: s.outTokens,
+		PromptExact:      s.inExact,
+		CompletionExact:  s.outExact,
+		Elapsed:          elapsed,
+		Streaming:        streaming,
+	}
+	if !s.firstAt.IsZero() {
+		m.TTFT = s.firstAt.Sub(s.startAt)
+	}
+	return m
 }
 
 func (s *PaneStreamer) stopProgress() {
@@ -260,6 +335,20 @@ func (s *PaneStreamer) stopProgress() {
 	}
 	if done != nil {
 		<-done
+	}
+}
+
+// SetTurnUsage records provider-reported prompt/completion tokens (called by agent finalize).
+func (s *PaneStreamer) SetTurnUsage(in, out int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if in > 0 {
+		s.inTokens = in
+		s.inExact = true
+	}
+	if out > 0 {
+		s.outTokens = out
+		s.outExact = true
 	}
 }
 
@@ -297,17 +386,27 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 		}
 	}
 	s.last = content
+	if !s.outExact {
+		s.outTokens = EstimateTokens(content)
+	}
+	elapsed := time.Since(s.startAt)
+	m := s.liveMetricsLocked(elapsed, true)
+
 	s.ui.mu.Lock()
 	s.ui.sess.SetContent(content)
-	tokens := EstimateTokens(content)
-	elapsed := time.Since(s.firstAt)
-	if s.firstAt.IsZero() {
-		elapsed = time.Since(s.startAt)
-	}
-	s.ui.sess.SetStats(FormatTPSLine(tokens, TPS(tokens, elapsed)) + "  streaming")
+	s.ui.sess.SetStats(fmt.Sprintf("streaming · %.1f tps", TPS(m.CompletionTokens, elapsedSinceFirst(s))))
+	s.ui.last = m
+	s.ui.refreshStatusLocked("input")
 	s.ui.mu.Unlock()
 	s.ui.requestRedraw()
 	return nil
+}
+
+func elapsedSinceFirst(s *PaneStreamer) time.Duration {
+	if s.firstAt.IsZero() {
+		return time.Since(s.startAt)
+	}
+	return time.Since(s.firstAt)
 }
 
 func (s *PaneStreamer) Finalize(_ context.Context, content string) error {
@@ -319,12 +418,12 @@ func (s *PaneStreamer) Cancel(context.Context) {
 	s.stopProgress()
 }
 
-// Finish writes final content + tps into the stats line.
+// Finish writes final content and applies turn metrics to the status bar.
 func (s *PaneStreamer) Finish(content string) {
 	s.stopProgress()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.finished {
+		s.mu.Unlock()
 		return
 	}
 	s.finished = true
@@ -334,15 +433,32 @@ func (s *PaneStreamer) Finish(content string) {
 	if !s.streamed.Load() {
 		s.firstAt = time.Now()
 	}
-	elapsed := time.Since(s.firstAt)
-	if s.firstAt.IsZero() {
-		elapsed = time.Since(s.startAt)
+	if !s.outExact {
+		s.outTokens = EstimateTokens(s.last)
 	}
-	tokens := EstimateTokens(s.last)
+	if !s.inExact && s.inTokens == 0 {
+		s.inTokens = s.promptEst
+	}
+	elapsed := time.Since(s.startAt)
+	m := s.liveMetricsLocked(elapsed, false)
+	already := s.metricsApplied
+	s.metricsApplied = true
+	last := s.last
+	s.mu.Unlock()
+
 	s.ui.mu.Lock()
-	s.ui.sess.SetContent(s.last)
-	s.ui.sess.SetStats(FormatTPSLine(tokens, TPS(tokens, elapsed)))
+	s.ui.sess.SetContent(last)
+	s.ui.sess.SetStats("done")
 	s.ui.mu.Unlock()
+
+	if !already {
+		s.ui.applyTurnMetrics(m)
+	} else {
+		s.ui.mu.Lock()
+		s.ui.last = m
+		s.ui.refreshStatusLocked("input")
+		s.ui.mu.Unlock()
+	}
 	s.ui.redraw()
 }
 

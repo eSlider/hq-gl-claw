@@ -98,6 +98,12 @@ type LiveDisplay struct {
 
 	typeDelay time.Duration
 	streamed  atomic.Bool
+
+	promptEst int
+	inTokens  int
+	outTokens int
+	inExact   bool
+	outExact  bool
 }
 
 func NewLiveDisplay(out, errW io.Writer, logo string) *LiveDisplay {
@@ -130,6 +136,11 @@ func (d *LiveDisplay) writeErr(s string) {
 
 // Start shows the logo and begins the progress animation on stderr.
 func (d *LiveDisplay) Start() {
+	d.StartPrompt("")
+}
+
+// StartPrompt is Start with an optional user prompt for ↑ token estimate.
+func (d *LiveDisplay) StartPrompt(prompt string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.started {
@@ -137,10 +148,29 @@ func (d *LiveDisplay) Start() {
 	}
 	d.started = true
 	d.startAt = time.Now()
+	if prompt != "" {
+		d.promptEst = EstimateTokens(prompt)
+		d.inTokens = d.promptEst
+		d.inExact = false
+	}
 	d.stopProg = make(chan struct{})
 	d.progDone = make(chan struct{})
 	d.writeOut(fmt.Sprintf("\n%s\n", d.logo))
 	go d.animateProgress(d.stopProg, d.progDone)
+}
+
+// SetTurnUsage records provider-reported prompt/completion tokens.
+func (d *LiveDisplay) SetTurnUsage(in, out int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if in > 0 {
+		d.inTokens = in
+		d.inExact = true
+	}
+	if out > 0 {
+		d.outTokens = out
+		d.outExact = true
+	}
 }
 
 func (d *LiveDisplay) animateProgress(stop <-chan struct{}, done chan struct{}) {
@@ -232,6 +262,9 @@ func (d *LiveDisplay) Update(_ context.Context, content string) error {
 		d.writeOut("\n" + content)
 	}
 	d.last = content
+	if !d.outExact {
+		d.outTokens = EstimateTokens(content)
+	}
 	return nil
 }
 
@@ -283,12 +316,24 @@ func (d *LiveDisplay) Finish(content string) {
 		d.last = content
 	}
 
-	elapsed := time.Since(d.firstAt)
-	if d.firstAt.IsZero() {
-		elapsed = time.Since(d.startAt)
+	elapsed := time.Since(d.startAt)
+	if !d.outExact {
+		d.outTokens = EstimateTokens(d.last)
 	}
-	tokens := EstimateTokens(d.last)
-	d.writeOut("\n" + FormatTPSLine(tokens, TPS(tokens, elapsed)) + "\n")
+	if !d.inExact && d.inTokens == 0 {
+		d.inTokens = d.promptEst
+	}
+	m := TurnMetrics{
+		PromptTokens:     d.inTokens,
+		CompletionTokens: d.outTokens,
+		PromptExact:      d.inExact,
+		CompletionExact:  d.outExact,
+		Elapsed:          elapsed,
+	}
+	if !d.firstAt.IsZero() {
+		m.TTFT = d.firstAt.Sub(d.startAt)
+	}
+	d.writeOut("\n" + FormatTurnStatus(m) + "\n")
 }
 
 // Streamed reports whether any live delta was received from the provider.
