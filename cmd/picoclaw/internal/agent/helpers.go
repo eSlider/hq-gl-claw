@@ -12,6 +12,7 @@ import (
 	"github.com/ergochat/readline"
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
+	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cliui"
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -80,7 +81,7 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 		if err != nil {
 			return fmt.Errorf("error processing message: %w", err)
 		}
-		fmt.Printf("\n%s %s\n", internal.Logo, response)
+		cliui.PrintAgentResponse(os.Stdout, internal.Logo, response)
 		return nil
 	}
 
@@ -136,7 +137,8 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 			continue
 		}
 
-		fmt.Printf("\n%s %s\n\n", internal.Logo, response)
+		cliui.PrintAgentResponse(os.Stdout, internal.Logo, response)
+		fmt.Fprintln(os.Stdout)
 	}
 }
 
@@ -171,6 +173,7 @@ func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 			continue
 		}
 
-		fmt.Printf("\n%s %s\n\n", internal.Logo, response)
+		cliui.PrintAgentResponse(os.Stdout, internal.Logo, response)
+		fmt.Fprintln(os.Stdout)
 	}
 }
