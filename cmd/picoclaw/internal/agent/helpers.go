@@ -40,6 +40,10 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 		cfg.Agents.Defaults.ModelName = model
 	}
 
+	if err := cliui.EnableCLIAgentStreaming(cfg); err != nil {
+		return fmt.Errorf("enable cli streaming: %w", err)
+	}
+
 	provider, modelID, err := providers.CreateProvider(cfg)
 	if err != nil {
 		return fmt.Errorf("error creating provider: %w", err)
@@ -76,22 +80,31 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	logger.InfoCF("agent", "Agent initialized", logFields)
 
 	if message != "" {
-		ctx := context.Background()
-		response, err := agentLoop.ProcessDirect(ctx, message, sessionKey)
-		if err != nil {
-			return fmt.Errorf("error processing message: %w", err)
-		}
-		cliui.PrintAgentResponse(os.Stdout, internal.Logo, response)
-		return nil
+		return runOneTurn(agentLoop, msgBus, message, sessionKey)
 	}
 
 	fmt.Printf("%s Interactive mode (Ctrl+C to exit)\n\n", internal.Logo)
-	interactiveMode(agentLoop, sessionKey)
+	interactiveMode(agentLoop, msgBus, sessionKey)
 
 	return nil
 }
 
-func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
+func runOneTurn(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, message, sessionKey string) error {
+	display := cliui.NewLiveDisplay(os.Stdout, os.Stderr, internal.Logo)
+	msgBus.SetStreamDelegate(cliui.NewStreamDelegate(display))
+	display.Start()
+
+	ctx := context.Background()
+	response, err := agentLoop.ProcessDirect(ctx, message, sessionKey)
+	if err != nil {
+		display.Cancel(ctx)
+		return fmt.Errorf("error processing message: %w", err)
+	}
+	display.Finish(response)
+	return nil
+}
+
+func interactiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, sessionKey string) {
 	prompt := fmt.Sprintf("%s You: ", internal.Logo)
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -104,7 +117,7 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 	if err != nil {
 		fmt.Printf("Error initializing readline: %v\n", err)
 		fmt.Println("Falling back to simple input mode...")
-		simpleInteractiveMode(agentLoop, sessionKey)
+		simpleInteractiveMode(agentLoop, msgBus, sessionKey)
 		return
 	}
 	defer rl.Close()
@@ -130,19 +143,15 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 			return
 		}
 
-		ctx := context.Background()
-		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
-		if err != nil {
+		if err := runOneTurn(agentLoop, msgBus, input, sessionKey); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
-
-		cliui.PrintAgentResponse(os.Stdout, internal.Logo, response)
 		fmt.Fprintln(os.Stdout)
 	}
 }
 
-func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
+func simpleInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, sessionKey string) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print(fmt.Sprintf("%s You: ", internal.Logo))
@@ -166,14 +175,10 @@ func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 			return
 		}
 
-		ctx := context.Background()
-		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
-		if err != nil {
+		if err := runOneTurn(agentLoop, msgBus, input, sessionKey); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
 		}
-
-		cliui.PrintAgentResponse(os.Stdout, internal.Logo, response)
 		fmt.Fprintln(os.Stdout)
 	}
 }
