@@ -456,8 +456,8 @@ func (t *AgentTUI) handleInputKey(e ui.Event, busy bool, _ func(PaneEvent) error
 		t.input.InsertRune(' ')
 		return false
 	default:
-		if len(e.ID) == 1 {
-			t.input.InsertRune([]rune(e.ID)[0])
+		if r, ok := eventRune(e.ID); ok {
+			t.input.InsertRune(r)
 		}
 		return false
 	}
