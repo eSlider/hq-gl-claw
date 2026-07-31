@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	ui "github.com/metaspartan/gotui/v5"
 	"github.com/metaspartan/gotui/v5/widgets"
@@ -70,8 +71,15 @@ type AgentTUI struct {
 	session  SessionMetrics
 	last     TurnMetrics
 	endpoint EndpointInfo
-	busy     atomic.Bool
-	quit     atomic.Bool
+
+	activityPhase   ActivityPhase
+	activityDetail  string
+	activityStarted time.Time
+	activityTick    int
+	activeTools     map[string]int
+
+	busy atomic.Bool
+	quit atomic.Bool
 
 	redrawCh chan struct{}
 	eventCh  chan PaneEvent
@@ -198,7 +206,102 @@ func (t *AgentTUI) highlightFocusLocked() {
 }
 
 func (t *AgentTUI) refreshStatusLocked() {
-	t.status.Text = FormatStatusBar(t.last, t.session, t.focus.String(), FormatEndpoint(t.endpoint))
+	activity := FormatActivityLine(
+		t.activityPhase, t.activityDetail, t.activityStarted, t.activityTick, time.Now(),
+	)
+	t.status.Text = FormatStatusBar(
+		t.last, t.session, t.focus.String(), FormatEndpoint(t.endpoint), activity,
+	)
+}
+
+// SetActivity publishes a long-running background phase into the status pane.
+func (t *AgentTUI) SetActivity(phase ActivityPhase, detail string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.activityPhase = phase
+	t.activityDetail = strings.TrimSpace(detail)
+	t.activityStarted = time.Now()
+	t.refreshStatusLocked()
+	t.requestRedraw()
+}
+
+// ClearActivity clears the status-pane background activity indicator.
+func (t *AgentTUI) ClearActivity() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.activityPhase = ActivityIdle
+	t.activityDetail = ""
+	t.activityStarted = time.Time{}
+	t.activeTools = nil
+	t.refreshStatusLocked()
+	t.requestRedraw()
+}
+
+// BeginToolActivity marks a tool as running (supports concurrent tools).
+func (t *AgentTUI) BeginToolActivity(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "tool"
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.activeTools == nil {
+		t.activeTools = map[string]int{}
+	}
+	t.activeTools[name]++
+	t.activityPhase = ActivityTool
+	t.activityDetail = FormatActiveTools(t.activeTools)
+	t.activityStarted = time.Now()
+	t.refreshStatusLocked()
+	t.requestRedraw()
+}
+
+// EndToolActivity clears one running tool; falls back to llm wait when none remain.
+func (t *AgentTUI) EndToolActivity(name string) {
+	name = strings.TrimSpace(name)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.activeTools != nil {
+		if name == "" {
+			for k := range t.activeTools {
+				name = k
+				break
+			}
+		}
+		if n := t.activeTools[name]; n <= 1 {
+			delete(t.activeTools, name)
+		} else {
+			t.activeTools[name] = n - 1
+		}
+	}
+	if detail := FormatActiveTools(t.activeTools); detail != "" {
+		t.activityPhase = ActivityTool
+		t.activityDetail = detail
+	} else {
+		t.activityPhase = ActivityLLM
+		t.activityDetail = ""
+		t.activityStarted = time.Now()
+	}
+	t.refreshStatusLocked()
+	t.requestRedraw()
+}
+
+// ActivitySnapshot returns the current status-pane activity phase and detail.
+func (t *AgentTUI) ActivitySnapshot() (ActivityPhase, string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.activityPhase, t.activityDetail
+}
+
+// TickActivity advances the status-pane spinner/elapsed while a phase is active.
+func (t *AgentTUI) TickActivity() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.activityPhase == ActivityIdle && t.activityDetail == "" {
+		return
+	}
+	t.activityTick++
+	t.refreshStatusLocked()
 }
 
 // SetEndpoint updates the model/API shown in the bottom status bar.

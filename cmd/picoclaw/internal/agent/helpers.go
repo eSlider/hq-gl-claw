@@ -184,6 +184,10 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 	ui.SetEndpoint(cliui.EndpointFromConfig(agentLoop.GetConfig()))
 	_ = cliui.SaveLastCLISession(home, sessionKey)
 
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	defer watchCancel()
+	watchAgentActivity(watchCtx, agentLoop, ui)
+
 	return ui.Run(func(ev cliui.PaneEvent) error {
 		switch ev.Action {
 		case cliui.KeyActionSwitchSession:
@@ -211,6 +215,7 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			}
 			streamer := cliui.NewPaneStreamer(ui)
 			streamer.Start(ev.Payload)
+			ui.SetActivity(cliui.ActivityLLM, "")
 			msgBus.SetStreamDelegate(cliui.NewPaneStreamDelegate(streamer))
 			ctx := context.Background()
 			// Install branch path so ProcessDirect continues from the selected parent.
@@ -218,9 +223,11 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			response, err := agentLoop.ProcessDirect(ctx, ev.Payload, sessionKey)
 			if err != nil {
 				streamer.Cancel(ctx)
+				ui.ClearActivity()
 				return err
 			}
 			streamer.Finish(response)
+			ui.ClearActivity()
 			ui.CompleteRequest(ev.NodeID, response)
 			_ = cliui.SaveLastCLISession(home, sessionKey)
 			ui.SyncSessions(lister, sessionKey)

@@ -125,6 +125,9 @@ func (s *PaneStreamer) animateProgress(stop <-chan struct{}, done chan struct{})
 				s.ui.progress.Text = EmojiProgress(tick)
 			}
 			s.ui.last = m
+			if s.ui.activityPhase != ActivityIdle || s.ui.activityDetail != "" {
+				s.ui.activityTick++
+			}
 			s.ui.refreshStatusLocked()
 			s.ui.mu.Unlock()
 			s.ui.requestRedraw()
@@ -313,9 +316,17 @@ func (s *PaneStreamer) Finish(content string) {
 	s.ui.mu.Lock()
 	s.ui.setResultPrettyLocked(last)
 	s.ui.progress.Text = fmt.Sprintf("● %.1f tps", TPS(m.CompletionTokens, m.GenDuration()))
+	s.ui.activityPhase = ActivityIdle
+	s.ui.activityDetail = ""
+	s.ui.activityStarted = time.Time{}
+	s.ui.activeTools = nil
 	s.ui.mu.Unlock()
 	if !applied {
 		s.ui.applyTurnMetrics(m)
+	} else {
+		s.ui.mu.Lock()
+		s.ui.refreshStatusLocked()
+		s.ui.mu.Unlock()
 	}
 	s.ui.requestRedraw()
 }

@@ -29,9 +29,11 @@ streaming stays plain text.
 └───────────────────────────────────┴──────────────────┘
 ```
 
-Bottom row: **status** (left, turn/session metrics) shares the corner with **progress**
-(right — ◐ spinner / streaming tps / done). The result pane shows a `│`/`█`
-scrollbar on the right edge when content overflows the viewport.
+Bottom row: **status** (left — turn metrics + live activity) shares the corner with
+**progress** (right — ◐ spinner / streaming tps / done). While a turn runs, status
+shows the current background phase (`llm model`, `tool name`, `compress`,
+`subagent`) with elapsed time so long tool/API gaps are visible. The result pane
+shows a `│`/`█` scrollbar on the right edge when content overflows the viewport.
 
 ### Sessions list
 

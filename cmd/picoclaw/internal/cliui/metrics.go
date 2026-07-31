@@ -74,9 +74,20 @@ func FormatTurnStatus(m TurnMetrics) string {
 }
 
 // FormatStatusBar builds the bottom overall status line.
-// endpoint is optional ("bonsai · 127.0.0.1:9988").
-func FormatStatusBar(last TurnMetrics, sess SessionMetrics, focus string, endpoint ...string) string {
+// endpoint and activity are optional ("bonsai · host", "◐ tool read_file · 1.2s").
+func FormatStatusBar(last TurnMetrics, sess SessionMetrics, focus string, extras ...string) string {
 	parts := []string{FormatTurnStatus(last)}
+	endpoint, activity := "", ""
+	if len(extras) > 0 {
+		endpoint = extras[0]
+	}
+	if len(extras) > 1 {
+		activity = extras[1]
+	}
+	// Show in-flight work early so long tool/LLM gaps are obvious.
+	if activity != "" {
+		parts = append(parts, activity)
+	}
 	if sess.Turns > 0 {
 		parts = append(parts, fmt.Sprintf(
 			"Σ ↑%s ↓%s · %d turns",
@@ -85,8 +96,8 @@ func FormatStatusBar(last TurnMetrics, sess SessionMetrics, focus string, endpoi
 			sess.Turns,
 		))
 	}
-	if len(endpoint) > 0 && endpoint[0] != "" {
-		parts = append(parts, endpoint[0])
+	if endpoint != "" {
+		parts = append(parts, endpoint)
 	}
 	if focus != "" {
 		parts = append(parts, focus)
