@@ -74,7 +74,8 @@ func FormatTurnStatus(m TurnMetrics) string {
 }
 
 // FormatStatusBar builds the bottom overall status line.
-func FormatStatusBar(last TurnMetrics, sess SessionMetrics, focus string) string {
+// endpoint is optional ("bonsai · 127.0.0.1:9988").
+func FormatStatusBar(last TurnMetrics, sess SessionMetrics, focus string, endpoint ...string) string {
 	parts := []string{FormatTurnStatus(last)}
 	if sess.Turns > 0 {
 		parts = append(parts, fmt.Sprintf(
@@ -83,6 +84,9 @@ func FormatStatusBar(last TurnMetrics, sess SessionMetrics, focus string) string
 			formatCompact(sess.CompletionTokens),
 			sess.Turns,
 		))
+	}
+	if len(endpoint) > 0 && endpoint[0] != "" {
+		parts = append(parts, endpoint[0])
 	}
 	if focus != "" {
 		parts = append(parts, focus)

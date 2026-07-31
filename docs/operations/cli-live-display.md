@@ -73,6 +73,7 @@ else newest `cli:<nano>`, else `cli:default`. Force with `-s KEY`.
 | j/k ↑↓ | Move cursor; preview highlight for ↑/↓ rows |
 | Ctrl+J | Newline in input |
 | Ctrl+N | **New session** (any focus; keeps prior sessions in tree) |
+| F2 | Cycle enabled model/API (status shows `model · host`) |
 | n | **New session** (sessions focus) |
 | Esc / Ctrl+C | Quit (Esc first closes help if open) |
 | `exit` / `quit` | Quit from input |
@@ -82,7 +83,7 @@ Waiting for a reply: **emoji** animation in the bottom-right progress cell
 then `✅ done`. Left status keeps ↑↓ metrics with `⏳` while streaming.
 
 Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
-optional ttft, session Σ, focus name.
+optional ttft, session Σ, **model · api host**, focus name.
 
 Resize re-lays out via `ComputeChrome` + gotui `Clear`/`Render`.
 

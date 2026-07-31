@@ -8,6 +8,7 @@ const (
 	KeyActionSubmit
 	KeyActionSwitchSession
 	KeyActionNewSession
+	KeyActionCycleModel
 )
 
 // PaneEvent is a user action from the interactive agent TUI.

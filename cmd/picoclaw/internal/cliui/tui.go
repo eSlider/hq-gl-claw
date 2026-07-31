@@ -67,10 +67,11 @@ type AgentTUI struct {
 
 	sel textSel // drag-select in result pane → clipboard
 
-	session SessionMetrics
-	last    TurnMetrics
-	busy    atomic.Bool
-	quit    atomic.Bool
+	session  SessionMetrics
+	last     TurnMetrics
+	endpoint EndpointInfo
+	busy     atomic.Bool
+	quit     atomic.Bool
 
 	redrawCh chan struct{}
 	eventCh  chan PaneEvent
@@ -197,7 +198,24 @@ func (t *AgentTUI) highlightFocusLocked() {
 }
 
 func (t *AgentTUI) refreshStatusLocked() {
-	t.status.Text = FormatStatusBar(t.last, t.session, t.focus.String())
+	t.status.Text = FormatStatusBar(t.last, t.session, t.focus.String(), FormatEndpoint(t.endpoint))
+}
+
+// SetEndpoint updates the model/API shown in the bottom status bar.
+func (t *AgentTUI) SetEndpoint(ep EndpointInfo) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.endpoint = ep
+	t.refreshStatusLocked()
+	t.requestRedraw()
+}
+
+// SetProgressText sets the bottom-right progress cell (e.g. model switch ack).
+func (t *AgentTUI) SetProgressText(s string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.progress.Text = s
+	t.requestRedraw()
 }
 
 func (t *AgentTUI) refreshResultViewLocked() {
@@ -718,6 +736,20 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 		t.mu.Unlock()
 		if !t.busy.Load() {
 			t.emit(PaneEvent{Action: KeyActionNewSession, Payload: NewSessionKey()})
+			t.renderAll()
+		}
+		return false
+	case "<F2>":
+		t.mu.Lock()
+		if t.showHelp {
+			t.dismissHelpLocked()
+			t.mu.Unlock()
+			t.renderAll()
+			return false
+		}
+		t.mu.Unlock()
+		if !t.busy.Load() {
+			t.emit(PaneEvent{Action: KeyActionCycleModel})
 			t.renderAll()
 		}
 		return false

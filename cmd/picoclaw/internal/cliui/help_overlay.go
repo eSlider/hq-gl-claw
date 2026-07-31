@@ -7,6 +7,7 @@ const HelpShortcuts = `Global
   Ctrl+H  F1      this help
   Tab     S-Tab   cycle focus · input ↔ result ↔ sessions
   Ctrl+N          new session (keeps prior in tree)
+  F2              cycle model / API (status shows model · host)
   Esc     Ctrl+C  quit  (Esc closes this help first)
 
 Input

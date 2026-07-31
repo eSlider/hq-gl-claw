@@ -16,6 +16,18 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
+// isLocalAPIBase reports whether api_base points at a loopback HTTP endpoint
+// (no API key required for OpenAI-compatible local servers).
+func isLocalAPIBase(apiBase string) bool {
+	u := strings.ToLower(strings.TrimSpace(apiBase))
+	if u == "" {
+		return false
+	}
+	return strings.Contains(u, "127.0.0.1") ||
+		strings.Contains(u, "localhost") ||
+		strings.Contains(u, "[::1]")
+}
+
 // buildModelWithProtocol constructs a model string with protocol prefix.
 // If the model already contains a "/" (indicating it has a protocol prefix), it is returned as-is.
 // Otherwise, the protocol prefix is added.
@@ -325,6 +337,11 @@ func migrateV1ToV2(m map[string]any) error {
 				}
 				// The reserved "local-model" entry is considered enabled
 				if mVal["model_name"] == "local-model" {
+					mVal["enabled"] = true
+					continue
+				}
+				// Loopback OpenAI-compatible endpoints need no API key.
+				if apiBase, _ := mVal["api_base"].(string); isLocalAPIBase(apiBase) {
 					mVal["enabled"] = true
 				}
 				logger.Infof("model: %v", mVal)

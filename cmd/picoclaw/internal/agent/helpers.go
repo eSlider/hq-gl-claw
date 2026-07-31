@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ergochat/readline"
 
@@ -36,6 +37,8 @@ func agentCmd(message, sessionKey string, sessionSet bool, model string, debug b
 	if model != "" {
 		cfg.Agents.Defaults.ModelName = model
 	}
+	// Ensure local OpenAI-compatible bonsai endpoint is available to cycle to.
+	cliui.EnsureBonsaiLocal(cfg, false)
 
 	if err = cliui.EnableCLIAgentStreaming(cfg); err != nil {
 		return fmt.Errorf("enable cli streaming: %w", err)
@@ -178,6 +181,7 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 	lister := newAgentSessionLister(agentLoop)
 	ui.SyncSessions(lister, sessionKey)
 	ui.ShowSessionHistory(lister.GetHistory(sessionKey))
+	ui.SetEndpoint(cliui.EndpointFromConfig(agentLoop.GetConfig()))
 	_ = cliui.SaveLastCLISession(home, sessionKey)
 
 	return ui.Run(func(ev cliui.PaneEvent) error {
@@ -199,6 +203,8 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			_ = cliui.SaveLastCLISession(home, sessionKey)
 			ui.SyncSessions(lister, sessionKey)
 			return nil
+		case cliui.KeyActionCycleModel:
+			return cycleAgentModel(agentLoop, ui)
 		case cliui.KeyActionSubmit:
 			if ev.SessionKey != "" {
 				sessionKey = ev.SessionKey
@@ -223,6 +229,34 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			return nil
 		}
 	})
+}
+
+func cycleAgentModel(agentLoop *agent.AgentLoop, ui *cliui.AgentTUI) error {
+	cfg := agentLoop.GetConfig()
+	if cfg == nil {
+		return fmt.Errorf("no config")
+	}
+	current := cfg.Agents.Defaults.GetModelName()
+	next := cliui.NextModelName(cfg, current)
+	if next == "" || next == current {
+		return fmt.Errorf("no other enabled models to cycle")
+	}
+	cfg.Agents.Defaults.ModelName = next
+	provider, _, err := providers.CreateProvider(cfg)
+	if err != nil {
+		cfg.Agents.Defaults.ModelName = current
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := agentLoop.ReloadProviderAndConfig(ctx, provider, cfg); err != nil {
+		cfg.Agents.Defaults.ModelName = current
+		return err
+	}
+	ep := cliui.EndpointFromConfig(cfg)
+	ui.SetEndpoint(ep)
+	ui.SetProgressText(fmt.Sprintf("model → %s", cliui.FormatEndpoint(ep)))
+	return nil
 }
 
 // agentSessionLister adapts AgentLoop session store to cliui.SessionLister.
