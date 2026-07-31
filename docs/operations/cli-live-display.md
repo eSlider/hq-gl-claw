@@ -39,15 +39,20 @@ optional ttft, plus session Σ totals.
 | Key | Action |
 |-----|--------|
 | Tab / Shift+Tab | Cycle focus: input ↔ result ↔ sessions |
-| Enter | Submit (input) / open session (sessions) |
-| Ctrl+J | Newline in input |
-| j/k ↑↓ / wheel | Scroll result **or** move session cursor |
-| g / G / Home / End | Top / bottom of result |
-| PgUp / PgDn | Page result |
+| Mouse click | Focus pane; in sessions tree, select + open row |
+| Mouse wheel | Scroll result or sessions under cursor |
+| Enter / Space / l | Activate tree row (session switch / show req|resp) |
+| h / Left | Collapse session node |
 | Ctrl+N | **New session** (any focus) |
 | n | **New session** (sessions focus) |
 | Esc / Ctrl+C | Quit |
 | `exit` / `quit` | Quit from input |
+
+Sessions panel is a **tree**: session → ↑ request / ↓ response. Expand/collapse
+with Enter on the current session (or ▶/▼). Click a request/response to jump
+it into the result pane.
+
+Waiting for a reply shows an **emoji** animation in stats (`🦞💭✨…`).
 
 On launch (without `-s`), the TUI restores the **last used** cli session
 (`~/.picoclaw/last_cli_session`), else the newest `cli:<nano>` key, else

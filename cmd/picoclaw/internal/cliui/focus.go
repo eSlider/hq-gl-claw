@@ -10,6 +10,9 @@ const (
 	FocusSearch // legacy search mode; not in Tab cycle
 )
 
+// FocusNone means no pane hit (mouse outside interactive regions).
+const FocusNone Focus = -1
+
 func (f Focus) Next() Focus {
 	switch f {
 	case FocusInput:

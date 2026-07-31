@@ -43,8 +43,12 @@ type AgentTUI struct {
 	plainBuf    string
 	pretty      bool
 
-	sessionItems []SessionItem
-	sessionKeys  []string
+	treeRows      []SessionTreeRow
+	treeSel       int
+	treeTop       int
+	treeExpanded  map[string]bool
+	sessionLister SessionLister
+	currentKey    string
 
 	session SessionMetrics
 	last    TurnMetrics
@@ -93,18 +97,19 @@ func NewAgentTUI(prompt string) *AgentTUI {
 	}
 
 	return &AgentTUI{
-		prompt:    prompt,
-		stats:     stats,
-		result:    result,
-		sessions:  sessions,
-		input:     input,
-		status:    status,
-		focus:     FocusInput,
-		width:     80,
-		height:    24,
-		inputRows: 3,
-		redrawCh:  make(chan struct{}, 1),
-		eventCh:   make(chan PaneEvent, 8),
+		prompt:       prompt,
+		stats:        stats,
+		result:       result,
+		sessions:     sessions,
+		input:        input,
+		status:       status,
+		focus:        FocusInput,
+		width:        80,
+		height:       24,
+		inputRows:    3,
+		treeExpanded: map[string]bool{},
+		redrawCh:     make(chan struct{}, 1),
+		eventCh:      make(chan PaneEvent, 8),
 	}
 }
 
@@ -128,6 +133,7 @@ func (t *AgentTUI) applyChromeLocked() {
 	setWidgetRect(t.input, c.Input)
 	setWidgetRect(t.status, c.Status)
 	t.refreshResultViewLocked()
+	t.refreshSessionsViewLocked()
 	t.highlightFocusLocked()
 }
 
@@ -197,31 +203,64 @@ func (t *AgentTUI) setResultPrettyLocked(content string) {
 	t.refreshResultViewLocked()
 }
 
-// SyncSessions refreshes the right-hand list from a lister.
+// SyncSessions refreshes the right-hand session tree from a lister.
 func (t *AgentTUI) SyncSessions(src SessionLister, currentKey string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.sessionLister = src
+	t.currentKey = currentKey
+	if _, ok := t.treeExpanded[currentKey]; !ok {
+		t.treeExpanded[currentKey] = true
+	}
+	t.rebuildTreeLocked()
+	t.requestRedraw()
+}
+
+func (t *AgentTUI) rebuildTreeLocked() {
 	tw := 16
 	if t.sessions.Inner.Dx() > 4 {
 		tw = t.sessions.Inner.Dx() - 4
 	}
-	items := BuildSessionItems(src, currentKey, tw)
-	t.sessionItems = items
-	t.sessionKeys = make([]string, len(items))
-	rows := make([]string, len(items))
+	t.treeRows = BuildSessionTreeRows(t.sessionLister, t.currentKey, tw, t.treeExpanded)
+	// Prefer selecting the current session row after rebuild.
 	sel := 0
-	for i, it := range items {
-		t.sessionKeys[i] = it.Key
-		mark := " "
-		if it.Key == currentKey {
-			mark = "●"
+	for i, r := range t.treeRows {
+		if r.Kind == TreeRowSession && r.SessionKey == t.currentKey {
 			sel = i
+			break
 		}
-		rows[i] = fmt.Sprintf("%s %s", mark, it.Title)
+	}
+	t.treeSel = sel
+	t.refreshSessionsViewLocked()
+}
+
+func (t *AgentTUI) refreshSessionsViewLocked() {
+	h := maxInt(1, t.sessions.Inner.Dy())
+	n := len(t.treeRows)
+	t.treeTop = ClampOffset(t.treeTop, n, h)
+	t.treeSel = ClampOffset(t.treeSel, n, 1)
+	if n == 0 {
+		t.sessions.Rows = nil
+		t.sessions.SelectedRow = 0
+		return
+	}
+	// Keep selection visible.
+	if t.treeSel < t.treeTop {
+		t.treeTop = t.treeSel
+	}
+	if t.treeSel >= t.treeTop+h {
+		t.treeTop = t.treeSel - h + 1
+	}
+	end := t.treeTop + h
+	if end > n {
+		end = n
+	}
+	rows := make([]string, 0, end-t.treeTop)
+	for i := t.treeTop; i < end; i++ {
+		rows = append(rows, FormatTreeRowLabel(t.treeRows[i]))
 	}
 	t.sessions.Rows = rows
-	t.sessions.SelectedRow = sel
-	t.requestRedraw()
+	t.sessions.SelectedRow = t.treeSel - t.treeTop
 }
 
 // ShowSessionContent loads text into the result pane for a switched session.
@@ -302,11 +341,18 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 	case "<C-c>", "<Escape>":
 		return true
 	case "<C-n>":
-		// New session from any focus (also available as "n" in sessions pane).
 		if !t.busy.Load() {
 			t.emit(PaneEvent{Action: KeyActionNewSession, Payload: NewSessionKey()})
 			t.renderAll()
 		}
+		return false
+	case "<MouseLeft>":
+		t.handleMouseClick(e)
+		t.renderAll()
+		return false
+	case "<MouseWheelUp>", "<MouseWheelDown>":
+		t.handleMouseWheel(e)
+		t.renderAll()
 		return false
 	case "<Resize>":
 		if payload, ok := e.Payload.(ui.Resize); ok {
@@ -317,6 +363,7 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 			} else {
 				t.setResultPlainLocked(t.plainBuf)
 			}
+			t.rebuildTreeLocked()
 			t.mu.Unlock()
 			t.renderAll()
 		}
@@ -359,6 +406,95 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 	return false
 }
 
+func (t *AgentTUI) handleMouseClick(e ui.Event) {
+	m, ok := e.Payload.(ui.Mouse)
+	if !ok {
+		return
+	}
+	t.mu.Lock()
+	c := ComputeChrome(t.width, t.height, t.inputRows)
+	focus := HitTestPane(c, m.X, m.Y)
+	if focus == FocusNone {
+		t.mu.Unlock()
+		return
+	}
+	t.focus = focus
+	t.highlightFocusLocked()
+
+	if focus == FocusSessions && PointInRect(c.Sessions, m.X, m.Y) {
+		innerY := t.sessions.Inner.Min.Y
+		rel := m.Y - innerY
+		if rel >= 0 {
+			idx := t.treeTop + rel
+			if idx >= 0 && idx < len(t.treeRows) {
+				t.treeSel = idx
+				t.refreshSessionsViewLocked()
+				row := t.treeRows[idx]
+				t.mu.Unlock()
+				t.activateTreeRow(row)
+				return
+			}
+		}
+	}
+	t.mu.Unlock()
+}
+
+func (t *AgentTUI) handleMouseWheel(e ui.Event) {
+	m, ok := e.Payload.(ui.Mouse)
+	if !ok {
+		return
+	}
+	t.mu.Lock()
+	c := ComputeChrome(t.width, t.height, t.inputRows)
+	dir := 1
+	if e.ID == "<MouseWheelUp>" {
+		dir = -1
+	}
+	switch {
+	case PointInRect(c.Result, m.X, m.Y) || t.focus == FocusResult:
+		h := maxInt(1, t.result.Inner.Dy())
+		t.resultOff = ClampOffset(t.resultOff+dir, len(t.resultLines), h)
+		t.refreshResultViewLocked()
+		if PointInRect(c.Result, m.X, m.Y) {
+			t.focus = FocusResult
+			t.highlightFocusLocked()
+		}
+	case PointInRect(c.Sessions, m.X, m.Y) || t.focus == FocusSessions:
+		h := maxInt(1, t.sessions.Inner.Dy())
+		t.treeTop = ClampOffset(t.treeTop+dir, len(t.treeRows), h)
+		t.refreshSessionsViewLocked()
+		if PointInRect(c.Sessions, m.X, m.Y) {
+			t.focus = FocusSessions
+			t.highlightFocusLocked()
+		}
+	}
+	t.mu.Unlock()
+}
+
+func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
+	switch row.Kind {
+	case TreeRowSession:
+		// Toggle expand when already current; otherwise switch session.
+		t.mu.Lock()
+		if row.SessionKey == t.currentKey {
+			t.treeExpanded[row.SessionKey] = !t.treeExpanded[row.SessionKey]
+			t.rebuildTreeLocked()
+			t.mu.Unlock()
+			t.requestRedraw()
+			return
+		}
+		t.mu.Unlock()
+		t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: row.SessionKey})
+	case TreeRowRequest, TreeRowResponse:
+		t.ShowSessionContent(row.Content)
+		t.mu.Lock()
+		t.focus = FocusResult
+		t.highlightFocusLocked()
+		t.mu.Unlock()
+		t.requestRedraw()
+	}
+}
+
 func (t *AgentTUI) handleResultKey(e ui.Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -382,34 +518,56 @@ func (t *AgentTUI) handleResultKey(e ui.Event) {
 
 func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 	t.mu.Lock()
-	n := len(t.sessions.Rows)
+	n := len(t.treeRows)
 	if n == 0 {
 		t.mu.Unlock()
 		return false
 	}
+	h := maxInt(1, t.sessions.Inner.Dy())
 	switch e.ID {
 	case "j", "<Down>":
-		if t.sessions.SelectedRow < n-1 {
-			t.sessions.SelectedRow++
+		if t.treeSel < n-1 {
+			t.treeSel++
 		}
+		t.refreshSessionsViewLocked()
 		t.mu.Unlock()
 		return true
 	case "k", "<Up>":
-		if t.sessions.SelectedRow > 0 {
-			t.sessions.SelectedRow--
+		if t.treeSel > 0 {
+			t.treeSel--
 		}
+		t.refreshSessionsViewLocked()
 		t.mu.Unlock()
 		return true
-	case "<Enter>":
-		idx := t.sessions.SelectedRow
-		var key string
-		if idx >= 0 && idx < len(t.sessionKeys) {
-			key = t.sessionKeys[idx]
+	case "<PageDown>":
+		t.treeSel = ClampOffset(t.treeSel+h, n, 1)
+		t.refreshSessionsViewLocked()
+		t.mu.Unlock()
+		return true
+	case "<PageUp>":
+		t.treeSel = ClampOffset(t.treeSel-h, n, 1)
+		t.refreshSessionsViewLocked()
+		t.mu.Unlock()
+		return true
+	case "<Enter>", "<Space>", "l", "<Right>":
+		idx := t.treeSel
+		var row SessionTreeRow
+		if idx >= 0 && idx < n {
+			row = t.treeRows[idx]
 		}
 		t.mu.Unlock()
-		if key != "" {
-			t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: key})
+		if row.SessionKey != "" || row.Content != "" {
+			t.activateTreeRow(row)
 		}
+		return true
+	case "h", "<Left>":
+		idx := t.treeSel
+		if idx >= 0 && idx < n && t.treeRows[idx].Kind == TreeRowSession {
+			key := t.treeRows[idx].SessionKey
+			t.treeExpanded[key] = false
+			t.rebuildTreeLocked()
+		}
+		t.mu.Unlock()
 		return true
 	case "n":
 		t.mu.Unlock()

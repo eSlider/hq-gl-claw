@@ -9,7 +9,7 @@ import (
 
 const (
 	// DefaultCLISession is used when no prior cli session exists.
-	DefaultCLISession = "cli:default"
+	DefaultCLISession  = "cli:default"
 	lastCLISessionFile = "last_cli_session"
 )
 
