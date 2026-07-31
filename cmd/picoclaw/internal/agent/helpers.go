@@ -186,7 +186,6 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			sessionKey = ev.Payload
 			_ = cliui.SaveLastCLISession(home, sessionKey)
 			ui.SyncSessions(lister, sessionKey)
-			ui.ShowSessionHistory(lister.GetHistory(sessionKey))
 			return nil
 		case cliui.KeyActionNewSession:
 			prev := sessionKey
@@ -195,12 +194,10 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 				sessionKey = cliui.NewSessionKey()
 			}
 			_ = cliui.SaveLastCLISession(home, sessionKey)
-			// Retain previous + new so Ctrl+N never drops the prior row from the tree.
 			ui.SyncSessions(lister, sessionKey)
 			if prev != "" {
 				ui.RetainSession(prev)
 			}
-			ui.ShowSessionHistory(nil)
 			return nil
 		case cliui.KeyActionSubmit:
 			if ev.SessionKey != "" {

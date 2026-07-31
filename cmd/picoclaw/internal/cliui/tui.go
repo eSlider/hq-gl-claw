@@ -280,8 +280,8 @@ func (t *AgentTUI) clearHoverHighlightLocked() {
 func (t *AgentTUI) SyncSessions(src SessionLister, currentKey string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	prev := t.currentKey
 	t.sessionLister = src
-	t.currentKey = currentKey
 	if currentKey != "" {
 		t.retainKeys[currentKey] = struct{}{}
 	}
@@ -292,10 +292,9 @@ func (t *AgentTUI) SyncSessions(src SessionLister, currentKey string) {
 			}
 		}
 	}
-	if _, ok := t.treeExpanded[currentKey]; !ok {
-		t.treeExpanded[currentKey] = true
-	}
+	t.focusSessionLocked(prev, currentKey)
 	t.rebuildTreeLocked()
+	t.loadTranscriptForCurrentLocked()
 	t.requestRedraw()
 }
 
@@ -313,6 +312,61 @@ func (t *AgentTUI) RetainSession(key string) {
 	t.retainKeys[key] = struct{}{}
 	t.rebuildTreeLocked()
 	t.requestRedraw()
+}
+
+// focusSessionLocked switches currentKey, collapses other sessions, and clears
+// stale selection/input when the active session changes.
+func (t *AgentTUI) focusSessionLocked(prev, key string) {
+	t.currentKey = key
+	for k := range t.retainKeys {
+		if k == key {
+			continue
+		}
+		t.treeExpanded[k] = false
+		if root := t.forest[k]; root != nil {
+			t.treeExpanded[root.ID] = false
+		}
+	}
+	if key != "" {
+		t.treeExpanded[key] = true
+	}
+	if n := t.nodeByIDLocked(t.selectedID); n == nil || n.Session != key {
+		t.selectedID = ""
+	}
+	if prev != key {
+		t.input.Text = ""
+		t.input.Cursor.X = 0
+		t.input.Cursor.Y = 0
+		t.hasHighlight = false
+		t.treeHover = -1
+		t.pendingReqID = ""
+	}
+}
+
+func (t *AgentTUI) nodeByIDLocked(id string) *ConvNode {
+	if id == "" {
+		return nil
+	}
+	for _, root := range t.forest {
+		if n := FindNode(root, id); n != nil {
+			return n
+		}
+	}
+	return nil
+}
+
+func (t *AgentTUI) loadTranscriptForCurrentLocked() {
+	root := t.forest[t.currentKey]
+	if root == nil {
+		t.setTranscriptLocked(nil)
+		return
+	}
+	tip := DeepestTip(root)
+	if tip == nil || tip.Kind == TreeRowSession {
+		t.setTranscriptLocked(nil)
+		return
+	}
+	t.setTranscriptLocked(PathMessages(tip))
 }
 
 func (t *AgentTUI) retainKeyListLocked() []string {
@@ -333,22 +387,21 @@ func (t *AgentTUI) rebuildTreeLocked() {
 		t.sessionLister, t.currentKey, tw, t.forest, t.treeExpanded, &t.idGen, t.retainKeyListLocked()...,
 	)
 	t.treeRows = rows
-	// Prefer keeping selected node; else tip of current session (not root),
-	// so the next submit nests under the latest response.
+	// Prefer keeping selected node only if it belongs to the current session.
 	sel := 0
 	found := false
 	for i, r := range t.treeRows {
-		if t.selectedID != "" && r.NodeID == t.selectedID {
+		if t.selectedID != "" && r.NodeID == t.selectedID && r.SessionKey == t.currentKey {
 			sel = i
 			found = true
 			break
 		}
 	}
 	if !found {
+		t.selectedID = ""
 		if tip := DeepestTip(t.forest[t.currentKey]); tip != nil {
 			t.selectedID = tip.ID
 			ExpandAncestors(t.treeExpanded, tip)
-			// Re-flatten once so ancestors are expanded in rows.
 			rows, t.forest = BuildSessionTreeRows(
 				t.sessionLister, t.currentKey, tw, t.forest, t.treeExpanded, &t.idGen, t.retainKeyListLocked()...,
 			)
@@ -384,21 +437,21 @@ func (t *AgentTUI) CompleteRequest(requestNodeID, response string) {
 		id = t.pendingReqID
 	}
 	t.pendingReqID = ""
-	root := t.forest[t.currentKey]
-	if root == nil {
-		return
-	}
-	req := FindNode(root, id)
+	req := t.nodeByIDLocked(id)
 	if req == nil {
 		return
+	}
+	if req.Session != "" {
+		t.currentKey = req.Session
 	}
 	resp := AttachResponse(req, response, &t.idGen)
 	if resp != nil {
 		ExpandAncestors(t.treeExpanded, resp)
 		t.selectedID = resp.ID
 	}
-	// Refresh session title from last request.
-	root.Content = sessionTitleFromTree(root)
+	if root := t.forest[req.Session]; root != nil {
+		root.Content = sessionTitleFromTree(root)
+	}
 	t.rebuildTreeLocked()
 	if resp != nil {
 		t.setTranscriptLocked(PathMessages(resp))
@@ -410,20 +463,12 @@ func (t *AgentTUI) selectedNodeLocked() *ConvNode {
 	if t.selectedID == "" {
 		return t.forest[t.currentKey]
 	}
-	root := t.forest[t.currentKey]
-	if root == nil {
-		return nil
-	}
-	if n := FindNode(root, t.selectedID); n != nil {
-		return n
-	}
-	// Selection may be in another session's tree.
-	for _, r := range t.forest {
-		if n := FindNode(r, t.selectedID); n != nil {
+	if n := t.nodeByIDLocked(t.selectedID); n != nil {
+		if n.Session == t.currentKey {
 			return n
 		}
 	}
-	return root
+	return t.forest[t.currentKey]
 }
 
 func (t *AgentTUI) autofillFromRequestLocked(content string) {
@@ -688,6 +733,10 @@ func (t *AgentTUI) handleMouseHover(e ui.Event) {
 	}
 	t.treeHover = idx
 	row := t.treeRows[idx]
+	if row.SessionKey != t.currentKey {
+		t.clearHoverHighlightLocked()
+		return
+	}
 	t.selectedID = row.NodeID
 	switch row.Kind {
 	case TreeRowRequest, TreeRowResponse:
@@ -733,40 +782,64 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 	switch row.Kind {
 	case TreeRowSession:
 		t.mu.Lock()
-		t.treeExpanded[row.SessionKey] = true
-		if row.NodeID != "" {
-			t.treeExpanded[row.NodeID] = true
-		}
-		t.selectedID = row.NodeID
 		same := row.SessionKey == t.currentKey
 		if same {
-			t.rebuildTreeLocked()
-			if root := t.forest[row.SessionKey]; root != nil {
-				t.setTranscriptLocked(collectSessionTranscript(root))
+			t.treeExpanded[row.SessionKey] = true
+			if row.NodeID != "" {
+				t.treeExpanded[row.NodeID] = true
 			}
+			t.selectedID = row.NodeID
+			t.rebuildTreeLocked()
+			t.loadTranscriptForCurrentLocked()
 			t.mu.Unlock()
 			t.requestRedraw()
 			return
 		}
+		prev := t.currentKey
+		t.focusSessionLocked(prev, row.SessionKey)
+		t.selectedID = row.NodeID
+		t.rebuildTreeLocked()
+		t.loadTranscriptForCurrentLocked()
+		key := row.SessionKey
 		t.mu.Unlock()
-		t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: row.SessionKey})
+		t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: key})
+		t.requestRedraw()
 	case TreeRowRequest:
 		t.mu.Lock()
+		switched := row.SessionKey != t.currentKey
+		if switched {
+			t.focusSessionLocked(t.currentKey, row.SessionKey)
+			t.rebuildTreeLocked()
+		}
 		t.selectedID = row.NodeID
+		ExpandAncestors(t.treeExpanded, t.nodeByIDLocked(row.NodeID))
+		t.rebuildTreeLocked()
 		t.autofillFromRequestLocked(row.Content)
 		t.applyHoverHighlightLocked(row.Kind, row.Content)
 		t.focus = FocusInput
 		t.highlightFocusLocked()
+		key := row.SessionKey
 		t.mu.Unlock()
+		if switched {
+			t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: key})
+		}
 		t.requestRedraw()
 	case TreeRowResponse:
 		t.mu.Lock()
-		t.selectedID = row.NodeID
-		if row.NodeID != "" {
-			t.treeExpanded[row.NodeID] = true
+		switched := row.SessionKey != t.currentKey
+		if switched {
+			t.focusSessionLocked(t.currentKey, row.SessionKey)
+			t.rebuildTreeLocked()
 		}
+		t.selectedID = row.NodeID
+		ExpandAncestors(t.treeExpanded, t.nodeByIDLocked(row.NodeID))
+		t.rebuildTreeLocked()
 		t.applyHoverHighlightLocked(row.Kind, row.Content)
+		key := row.SessionKey
 		t.mu.Unlock()
+		if switched {
+			t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: key})
+		}
 		t.requestRedraw()
 	}
 }
@@ -887,6 +960,10 @@ func (t *AgentTUI) previewTreeSelectionLocked() {
 		return
 	}
 	row := t.treeRows[t.treeSel]
+	if row.SessionKey != t.currentKey {
+		t.clearHoverHighlightLocked()
+		return
+	}
 	t.selectedID = row.NodeID
 	switch row.Kind {
 	case TreeRowRequest:
