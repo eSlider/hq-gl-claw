@@ -2,7 +2,7 @@
 
 ## One-shot (`picoclaw agent -m '…'`)
 
-1. Progress bar on stderr while waiting
+1. Progress on stderr while waiting
 2. Streamed tokens to stdout
 3. Footer: `✓ ↑in ↓out · elapsed · tps · ttft …`
    - Exact counts when the provider reports usage (`SetTurnUsage`)
@@ -11,66 +11,82 @@
 
 ## Interactive TUI (TTY) — gotui
 
-Built on [metaspartan/gotui](https://github.com/metaspartan/gotui) (tcell Flex/widgets).
+Built on [metaspartan/gotui](https://github.com/metaspartan/gotui) (tcell widgets).
 Markdown in the result pane uses `mdansi.RenderGotui` after each turn completes;
 streaming stays plain text.
 
 ```
 ┌────────────────────────────────────┬──────────────────┐
-│ top: progress / focus              │ sessions         │
-├────────────────────────────────────┤ ● last request…  │
-│ result (scrollable)                │   previous…      │
-│ …                                  │   previous…      │
+│ stats: 🦞 thinking… / ✨ tps       │ sessions tree    │
+├────────────────────────────────────┤ ▼ ● last ask…    │
+│ result (scrollable)                │     ↑ request    │
+│ …                                  │     ↓ response   │
+│                                    │ ▶ ● older…       │
 ├────────────────────────────────────┤                  │
-│ input (TextArea, native caret)     │                  │
+│ input (TextArea, UTF-8 / Cyrillic) │                  │
 ├────────────────────────────────────┴──────────────────┤
-│ ✓ ↑1234 ↓567 · 2.30s · 45.2 tps · Σ … · 3 turns       │
+│ ✓ ↑1234 ↓567 · 2.30s · 45.2 tps · Σ … · focus         │
 └───────────────────────────────────────────────────────┘
 ```
 
-Right panel: current session (●) first, then previous `cli:*` sessions.
-Row title = **last user request**, truncated.
+### Sessions tree
 
-Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
-optional ttft, plus session Σ totals.
+- **Level 1 — session** (`▼/▶ ● title` = last user request)
+- **Level 2 — turn** (`↑` request, `↓` response)
+- Current session is expanded by default; click/Enter a leaf to show it in **result**
+- Click/Enter another session node to switch; Enter on current toggles expand
 
-### Keys
+### Launch / session restore
 
-| Key | Action |
-|-----|--------|
+Without `-s`, restore **last used** key from `~/.picoclaw/last_cli_session`,
+else newest `cli:<nano>`, else `cli:default`. Force with `-s KEY`.
+
+### Keys & mouse
+
+| Input | Action |
+|-------|--------|
 | Tab / Shift+Tab | Cycle focus: input ↔ result ↔ sessions |
-| Mouse click | Focus pane; in sessions tree, select + open row |
+| Mouse click | Focus pane; in tree, select + activate row |
 | Mouse wheel | Scroll result or sessions under cursor |
-| Enter / Space / l | Activate tree row (session switch / show req|resp) |
+| Enter / Space / l | Activate tree row (switch / show req\|resp) |
 | h / Left | Collapse session node |
+| j/k ↑↓ | Move cursor / scroll in focused pane |
+| Ctrl+J | Newline in input |
 | Ctrl+N | **New session** (any focus) |
 | n | **New session** (sessions focus) |
 | Esc / Ctrl+C | Quit |
 | `exit` / `quit` | Quit from input |
 
-Sessions panel is a **tree**: session → ↑ request / ↓ response. Expand/collapse
-with Enter on the current session (or ▶/▼). Click a request/response to jump
-it into the result pane.
+Waiting for a reply: **emoji** animation in stats (`🦞💭✨🔮…`), then
+`✨ streaming · N tps`, then `✅ done`.
 
-Waiting for a reply shows an **emoji** animation in stats (`🦞💭✨…`).
+Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
+optional ttft, session Σ, focus name.
 
-On launch (without `-s`), the TUI restores the **last used** cli session
-(`~/.picoclaw/last_cli_session`), else the newest `cli:<nano>` key, else
-`cli:default`. Pass `-s KEY` to force a session.
-
-Resize clears and re-lays out via `ComputeChrome` + gotui `Render`.
+Resize re-lays out via `ComputeChrome` + gotui `Clear`/`Render`.
 
 ## Env
 
 | Env | Effect |
 |-----|--------|
-| `PICOCLAW_PANES=0` | Use classic readline instead of gotui TUI |
+| `PICOCLAW_PANES=0` | Classic readline instead of gotui TUI |
 | `PICOCLAW_MARKDOWN=0` | Disable mdansi (plain text) |
 | `PICOCLAW_GLAMOUR=0` | Deprecated alias of `PICOCLAW_MARKDOWN=0` |
 
+## Try it
+
+```bash
+go build -o ~/.local/bin/picoclaw ./cmd/picoclaw
+picoclaw agent                          # interactive gotui TUI
+picoclaw agent -m 'Reply with a markdown list'
+PICOCLAW_PANES=0 picoclaw agent         # readline fallback
+PICOCLAW_MARKDOWN=0 picoclaw agent -m '…'
+```
+
 ## A/B
 
-See [mdansi-ab.md](mdansi-ab.md) for **plain → glamour (previous PR) → mdansi+gotui (current)** benches, binary/RSS, and the Bubble Tea note (planned Charm rewrite, not shipped).
+See [mdansi-ab.md](mdansi-ab.md) for **plain → glamour (previous) → mdansi+gotui (current)**
+benches, binary/RSS, and the Bubble Tea note (planned Charm rewrite, not shipped).
 
 ## Tests
 
