@@ -27,4 +27,4 @@ const (
 )
 
 // Key hints shown in pane titles so controls are discoverable at a glance.
-const inputHint = "input · ⏎ send · ^J newline · ^N new"
+const inputHint = "input · ⏎ send · ^J newline · ^N new · ^H help"

@@ -31,12 +31,14 @@ type AgentTUI struct {
 	sessions *widgets.List
 	input    *widgets.TextArea
 	status   *widgets.Paragraph // bottom-left: turn metrics
+	help     *widgets.Paragraph // Ctrl+H / F1 shortcut overlay
 
 	mu        sync.Mutex
 	focus     Focus
 	width     int
 	height    int
 	inputRows int
+	showHelp  bool
 
 	resultLines []string
 	resultOff   int
@@ -105,6 +107,12 @@ func NewAgentTUI(prompt string) *AgentTUI {
 	status := newParagraph("")
 	status.Text = "↑in ↓out · elapsed · tps · waiting for first turn"
 
+	help := newParagraph("help · Ctrl+H / Esc close")
+	help.Text = HelpShortcuts
+	help.WrapText = false
+	help.BorderStyle.Fg = colorAccent
+	help.TextStyle = ui.NewStyle(colorIdle)
+
 	if prompt == "" {
 		prompt = "You: "
 	}
@@ -116,6 +124,7 @@ func NewAgentTUI(prompt string) *AgentTUI {
 		sessions:     sessions,
 		input:        input,
 		status:       status,
+		help:         help,
 		focus:        FocusInput,
 		width:        80,
 		height:       24,
@@ -148,6 +157,10 @@ func (t *AgentTUI) applyChromeLocked() {
 	setWidgetRect(t.input, c.Input)
 	setWidgetRect(t.status, c.Status)
 	setWidgetRect(t.progress, c.Progress)
+	if t.help != nil {
+		hw, hh := HelpOverlaySize(t.width, t.height)
+		setWidgetRect(t.help, CenterRect(t.width, t.height, hw, hh))
+	}
 	t.refreshResultViewLocked()
 	t.refreshSessionsViewLocked()
 	t.highlightFocusLocked()
@@ -569,9 +582,43 @@ func (t *AgentTUI) applyTurnMetrics(m TurnMetrics) {
 func (t *AgentTUI) renderAll() {
 	t.mu.Lock()
 	t.applyChromeLocked()
+	showHelp := t.showHelp
 	t.mu.Unlock()
 	ui.Clear()
-	ui.Render(t.result, t.sessions, t.input, t.status, t.progress)
+	if showHelp {
+		ui.Render(t.result, t.sessions, t.input, t.status, t.progress, t.help)
+	} else {
+		ui.Render(t.result, t.sessions, t.input, t.status, t.progress)
+	}
+}
+
+// toggleHelpLocked flips the shortcuts overlay. Caller must hold t.mu.
+func (t *AgentTUI) toggleHelpLocked() {
+	t.showHelp = !t.showHelp
+}
+
+// dismissHelpLocked closes the help overlay if open. Returns true if it was open.
+func (t *AgentTUI) dismissHelpLocked() bool {
+	if !t.showHelp {
+		return false
+	}
+	t.showHelp = false
+	return true
+}
+
+// handleHelpMouse dismisses help on any click while the overlay is open.
+// Returns true if the event was consumed by the help layer.
+func (t *AgentTUI) handleHelpMouse(e ui.Event) bool {
+	if _, ok := e.Payload.(ui.Mouse); !ok {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.showHelp {
+		return false
+	}
+	t.showHelp = false
+	return true
 }
 
 // Run enters the gotui event loop until quit. handler receives submit/session events.
@@ -620,24 +667,64 @@ func (t *AgentTUI) Run(handler func(PaneEvent) error) error {
 
 func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool {
 	switch e.ID {
-	case "<C-c>", "<Escape>":
+	case "<C-h>", "<F1>":
+		t.mu.Lock()
+		t.toggleHelpLocked()
+		t.mu.Unlock()
+		t.renderAll()
+		return false
+	case "<C-c>":
+		return true
+	case "<Escape>":
+		t.mu.Lock()
+		closed := t.dismissHelpLocked()
+		t.mu.Unlock()
+		if closed {
+			t.renderAll()
+			return false
+		}
 		return true
 	case "<C-n>":
+		t.mu.Lock()
+		if t.showHelp {
+			t.dismissHelpLocked()
+			t.mu.Unlock()
+			t.renderAll()
+			return false
+		}
+		t.mu.Unlock()
 		if !t.busy.Load() {
 			t.emit(PaneEvent{Action: KeyActionNewSession, Payload: NewSessionKey()})
 			t.renderAll()
 		}
 		return false
 	case "<MouseLeft>":
+		if t.handleHelpMouse(e) {
+			t.renderAll()
+			return false
+		}
 		t.handleMouseClick(e)
 		t.renderAll()
 		return false
 	case "<MouseRelease>":
+		t.mu.Lock()
+		helping := t.showHelp
+		t.mu.Unlock()
+		if helping {
+			// Ignore hover while help is up.
+			return false
+		}
 		// tcell reports mouse motion as ButtonNone → MouseRelease.
 		t.handleMouseHover(e)
 		t.renderAll()
 		return false
 	case "<MouseWheelUp>", "<MouseWheelDown>":
+		t.mu.Lock()
+		helping := t.showHelp
+		t.mu.Unlock()
+		if helping {
+			return false
+		}
 		t.handleMouseWheel(e)
 		t.renderAll()
 		return false
@@ -657,6 +744,10 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 		return false
 	case "<Tab>":
 		t.mu.Lock()
+		if t.showHelp {
+			t.mu.Unlock()
+			return false
+		}
 		t.focus = t.focus.Next()
 		t.highlightFocusLocked()
 		t.mu.Unlock()
@@ -664,12 +755,34 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 		return false
 	case "<Backtab>", "<S-Tab>":
 		t.mu.Lock()
+		if t.showHelp {
+			t.mu.Unlock()
+			return false
+		}
 		t.focus = t.focus.Prev()
 		t.highlightFocusLocked()
 		t.mu.Unlock()
 		t.renderAll()
 		return false
+	case "<Enter>", "<Space>":
+		t.mu.Lock()
+		if t.showHelp {
+			t.dismissHelpLocked()
+			t.mu.Unlock()
+			t.renderAll()
+			return false
+		}
+		t.mu.Unlock()
+		// Fall through to focus-specific handlers below.
 	}
+
+	// While help is open, swallow other keys (except those handled above).
+	t.mu.Lock()
+	if t.showHelp {
+		t.mu.Unlock()
+		return false
+	}
+	t.mu.Unlock()
 
 	t.mu.Lock()
 	focus := t.focus
