@@ -18,8 +18,10 @@ const (
 	sessionsMinW = 18
 	sessionsMaxW = 28
 	minResultH   = 3
-	statsH       = 1
-	statusH      = 1
+	// gotui Block.SetRect always insets Inner by 1 row/col; bordered
+	// widgets need outer H>=3 for one line of text (top+content+bottom).
+	statsH  = 3
+	statusH = 3
 )
 
 // ComputeChrome derives pane geometry from terminal size and input row count.

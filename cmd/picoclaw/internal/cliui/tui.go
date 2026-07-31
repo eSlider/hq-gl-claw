@@ -83,7 +83,9 @@ func NewAgentTUI(prompt string) *AgentTUI {
 	input.Text = ""
 
 	status := widgets.NewParagraph()
-	status.Border = false
+	status.Title = ""
+	status.Border = true
+	status.BorderRounded = true
 	status.Text = "↑in ↓out · elapsed · tps · waiting for first turn"
 
 	if prompt == "" {

@@ -4,10 +4,10 @@ import "testing"
 
 func TestChrome_80x24(t *testing.T) {
 	c := ComputeChrome(80, 24, 3)
-	if c.Stats.H != 1 {
+	if c.Stats.H != 3 {
 		t.Fatalf("stats H=%d", c.Stats.H)
 	}
-	if c.Status.H != 1 {
+	if c.Status.H != 3 {
 		t.Fatalf("status H=%d", c.Status.H)
 	}
 	if c.Input.H != 3 {
@@ -16,7 +16,7 @@ func TestChrome_80x24(t *testing.T) {
 	if c.Sessions.W < 18 || c.Sessions.W > 28 {
 		t.Fatalf("sessions W=%d want [18,28]", c.Sessions.W)
 	}
-	wantViewH := 24 - 1 - 3 - 1 // stats, input, status
+	wantViewH := 24 - 3 - 3 - 3 // stats, input, status (gotui min chrome)
 	if c.Result.H != wantViewH {
 		t.Fatalf("result H=%d want %d", c.Result.H, wantViewH)
 	}
@@ -25,6 +25,12 @@ func TestChrome_80x24(t *testing.T) {
 	}
 	if c.Result.H < 3 {
 		t.Fatalf("result too small: %d", c.Result.H)
+	}
+	if c.Stats.Y != 0 {
+		t.Fatalf("stats should start at top, Y=%d", c.Stats.Y)
+	}
+	if c.Result.Y != c.Stats.Y+c.Stats.H {
+		t.Fatalf("result should sit under stats: result.Y=%d stats bottom=%d", c.Result.Y, c.Stats.Y+c.Stats.H)
 	}
 }
 
