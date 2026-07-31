@@ -13,33 +13,35 @@
 Inspired by [go-ollama TUI](https://github.com/eSlider/go-ollama/blob/main/examples/tui/main.go):
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│ top: progress / focus hints                              │
-├──────────────────────────────────────────────────────────┤
-│ result (scrollable, searchable)                          │
-│ …                                                        │
-├──────────────────────────────────────────────────────────┤
-│ > You: input                                             │
-├──────────────────────────────────────────────────────────┤
-│ ✓ ↑1234 ↓567 · 2.30s · 45.2 tps · Σ ↑5.2k ↓1.1k · 3 turns│
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────┬──────────────────┐
+│ top: progress / focus              │ sessions         │
+├────────────────────────────────────┤ ● last request…  │
+│ result (scrollable, searchable)    │   previous…      │
+│ …                                  │   previous…      │
+├────────────────────────────────────┤                  │
+│ > You: input                       │                  │
+├────────────────────────────────────┴──────────────────┤
+│ ✓ ↑1234 ↓567 · 2.30s · 45.2 tps · Σ … · 3 turns       │
+└───────────────────────────────────────────────────────┘
 ```
 
-Bottom status (overall): last turn ↑sent / ↓received, wall time, completion tps,
+Right panel: current session (●) first, then previous `cli:*` sessions.
+Row title = **last user request**, truncated.
+
+Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
 optional ttft, plus session Σ totals.
 
 ### Keys
 
 | Key | Action |
 |-----|--------|
-| Tab / Shift+Tab | Toggle focus: input ↔ result |
-| Enter | Submit (input focus) |
-| ↑↓ / j k | Scroll result |
-| PgUp / PgDn / u d | Page / half-page |
-| g / G | Top / bottom |
-| `/` then pattern + Enter | Vim-like search |
-| n / N | Next / previous match |
-| Esc | Clear search / cancel search entry |
+| Tab / Shift+Tab | Cycle focus: input ↔ result ↔ sessions |
+| Enter | Submit (input) / open session (sessions) |
+| j/k ↑↓ | Scroll result **or** move session cursor |
+| g / G | Top / bottom (result or sessions) |
+| n | Next search match (result) / **new session** (sessions) |
+| `/` … Enter, N | Vim-like search in result |
+| Esc | Clear search / leave sessions → input |
 | Ctrl+C | Quit |
 
 Resize (SIGWINCH) rewraps content and redraws the full frame.

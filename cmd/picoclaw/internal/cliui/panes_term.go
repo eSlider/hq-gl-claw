@@ -102,9 +102,8 @@ func (ui *PaneUI) Resize(width, height int) {
 	ui.redraw()
 }
 
-// Run loops until quit. onSubmit is called for each entered message; it should
-// block until the agent turn completes (streaming via PaneStreamer).
-func (ui *PaneUI) Run(onSubmit func(msg string) error) error {
+// Run loops until quit. handler receives submit / session-switch / new-session events.
+func (ui *PaneUI) Run(handler func(ev PaneEvent) error) error {
 	if err := ui.EnterRaw(); err != nil {
 		return err
 	}
@@ -155,23 +154,25 @@ func (ui *PaneUI) Run(onSubmit func(msg string) error) error {
 				}
 			}
 			ui.mu.Lock()
-			msg, submitted := ui.sess.HandleKey(k)
+			payload, action := ui.sess.HandleKey(k)
 			ui.mu.Unlock()
 			ui.redraw()
-			if !submitted {
+			if action == KeyActionNone {
 				continue
 			}
-			if msg == "exit" || msg == "quit" {
+			if action == KeyActionSubmit && (payload == "exit" || payload == "quit") {
 				ui.quit.Store(true)
 				return nil
 			}
-			ui.busy.Store(true)
-			ui.mu.Lock()
-			ui.sess.SetContent("")
-			ui.sess.SetStats("Thinking…")
-			ui.mu.Unlock()
-			ui.redraw()
-			err := onSubmit(msg)
+			if action == KeyActionSubmit {
+				ui.busy.Store(true)
+				ui.mu.Lock()
+				ui.sess.SetContent("")
+				ui.sess.SetStats("Thinking…")
+				ui.mu.Unlock()
+				ui.redraw()
+			}
+			err := handler(PaneEvent{Action: action, Payload: payload})
 			ui.busy.Store(false)
 			if err != nil {
 				ui.mu.Lock()
@@ -183,12 +184,40 @@ func (ui *PaneUI) Run(onSubmit func(msg string) error) error {
 				continue
 			}
 			ui.mu.Lock()
-			ui.sess.focus = FocusInput
+			if action == KeyActionSubmit || action == KeyActionSwitchSession || action == KeyActionNewSession {
+				ui.sess.focus = FocusInput
+			}
 			ui.refreshStatusLocked("input")
 			ui.mu.Unlock()
 			ui.redraw()
 		}
 	}
+}
+
+// PaneEvent is a user action from the pane UI.
+type PaneEvent struct {
+	Action  KeyAction
+	Payload string
+}
+
+// SyncSessions refreshes the right-hand list from a lister.
+func (ui *PaneUI) SyncSessions(src SessionLister, currentKey string) {
+	ui.mu.Lock()
+	defer ui.mu.Unlock()
+	tw := 16
+	if ui.sess != nil {
+		tw = ui.sess.sessionTitleWidth()
+	}
+	items := BuildSessionItems(src, currentKey, tw)
+	ui.sess.SetSessions(items, currentKey)
+}
+
+// ShowSessionContent loads text into the result pane for a switched session.
+func (ui *PaneUI) ShowSessionContent(content string) {
+	ui.mu.Lock()
+	defer ui.mu.Unlock()
+	ui.sess.SetContent(content)
+	ui.sess.scroll = 0
 }
 
 func (ui *PaneUI) refreshStatusLocked(focus string) {
@@ -206,6 +235,8 @@ func (ui *PaneUI) applyTurnMetrics(m TurnMetrics) {
 	switch ui.sess.Focus() {
 	case FocusResult:
 		focus = "result"
+	case FocusSessions:
+		focus = "sessions"
 	case FocusSearch:
 		focus = "search"
 	}

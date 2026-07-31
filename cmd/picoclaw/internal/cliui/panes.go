@@ -12,7 +12,18 @@ type Focus int
 const (
 	FocusInput Focus = iota
 	FocusResult
+	FocusSessions
 	FocusSearch
+)
+
+// KeyAction is the high-level outcome of HandleKey.
+type KeyAction int
+
+const (
+	KeyActionNone KeyAction = iota
+	KeyActionSubmit
+	KeyActionSwitchSession
+	KeyActionNewSession
 )
 
 // Key is a logical key event for the pane session.
@@ -69,6 +80,11 @@ type PaneSession struct {
 
 	prompt    string
 	statusBar string // bottom overall metrics line
+
+	sessions      []SessionItem
+	sessionKey    string
+	sessionCur    int
+	sessionScroll int
 }
 
 // NewPaneSession creates a session with the given terminal size.
@@ -89,6 +105,20 @@ func (p *PaneSession) MatchLine() int {
 		return -1
 	}
 	return p.matchLine
+}
+
+func (p *PaneSession) SessionCursor() int {
+	if p == nil {
+		return 0
+	}
+	return p.sessionCur
+}
+
+func (p *PaneSession) ActiveSessionKey() string {
+	if p == nil {
+		return ""
+	}
+	return p.sessionKey
 }
 
 func (p *PaneSession) Input() string {
@@ -191,6 +221,76 @@ func (p *PaneSession) SetStatusBar(s string) {
 	p.statusBar = strings.ReplaceAll(s, "\n", " ")
 }
 
+// SetSessions replaces the right-hand session list; currentKey is marked active.
+func (p *PaneSession) SetSessions(items []SessionItem, currentKey string) {
+	p.sessions = append([]SessionItem(nil), items...)
+	p.sessionKey = currentKey
+	p.sessionCur = 0
+	for i, it := range p.sessions {
+		if it.Key == currentKey {
+			p.sessionCur = i
+			break
+		}
+	}
+	p.clampSessionCursor()
+}
+
+// UpdateSessionTitle sets/inserts the title for key (after a turn).
+func (p *PaneSession) UpdateSessionTitle(key, title string) {
+	if key == "" {
+		return
+	}
+	title = TruncateTitle(title, p.sessionTitleWidth())
+	for i := range p.sessions {
+		if p.sessions[i].Key == key {
+			p.sessions[i].Title = title
+			return
+		}
+	}
+	p.sessions = append([]SessionItem{{Key: key, Title: title}}, p.sessions...)
+	p.sessionKey = key
+	p.sessionCur = 0
+}
+
+func (p *PaneSession) sessionTitleWidth() int {
+	w := p.sideWidth() - 2
+	if w < 8 {
+		w = 8
+	}
+	return w
+}
+
+func (p *PaneSession) sideWidth() int {
+	if len(p.sessions) == 0 {
+		return 0
+	}
+	w := p.width / 4
+	if w < 18 {
+		w = 18
+	}
+	if w > 36 {
+		w = 36
+	}
+	if p.width-w < 28 {
+		w = p.width - 28
+	}
+	if w < 14 {
+		if p.width < 42 {
+			return 0
+		}
+		return 14
+	}
+	return w
+}
+
+func (p *PaneSession) leftWidth() int {
+	sw := p.sideWidth()
+	if sw == 0 {
+		return p.width
+	}
+	return p.width - sw - 1 // divider column
+}
+
 // SetContent replaces result text and rewraps.
 func (p *PaneSession) SetContent(s string) {
 	p.content = s
@@ -222,7 +322,7 @@ func (p *PaneSession) SetInput(s string) {
 }
 
 func (p *PaneSession) rewrap() {
-	wrapWidth := p.width
+	wrapWidth := p.leftWidth() - 1 // content prefix column
 	if wrapWidth < 1 {
 		wrapWidth = 1
 	}
@@ -252,61 +352,88 @@ func wrapText(s string, width int) []string {
 	return out
 }
 
-// HandleKey processes a key. When Enter submits from the input pane, it returns
-// the message and true.
-func (p *PaneSession) HandleKey(k Key) (submitted string, ok bool) {
+// HandleKey processes a key. Payload depends on KeyAction (submit text or session key).
+func (p *PaneSession) HandleKey(k Key) (payload string, action KeyAction) {
 	switch p.focus {
 	case FocusSearch:
-		return "", p.handleSearchKey(k)
+		p.handleSearchKey(k)
+		return "", KeyActionNone
 	case FocusResult:
-		p.handleResultKey(k)
-		return "", false
+		return p.handleResultKey(k)
+	case FocusSessions:
+		return p.handleSessionsKey(k)
 	default:
 		return p.handleInputKey(k)
 	}
 }
 
-func (p *PaneSession) handleInputKey(k Key) (string, bool) {
+func (p *PaneSession) cycleFocus(forward bool) {
+	order := []Focus{FocusInput, FocusResult, FocusSessions}
+	if p.sideWidth() == 0 {
+		order = []Focus{FocusInput, FocusResult}
+	}
+	idx := 0
+	for i, f := range order {
+		if f == p.focus {
+			idx = i
+			break
+		}
+	}
+	if forward {
+		idx = (idx + 1) % len(order)
+	} else {
+		idx = (idx - 1 + len(order)) % len(order)
+	}
+	p.focus = order[idx]
+}
+
+func (p *PaneSession) handleInputKey(k Key) (string, KeyAction) {
 	switch k {
-	case KeyTab, KeyShiftTab:
-		p.focus = FocusResult
-		return "", false
+	case KeyTab:
+		p.cycleFocus(true)
+		return "", KeyActionNone
+	case KeyShiftTab:
+		p.cycleFocus(false)
+		return "", KeyActionNone
 	case KeyEnter:
 		msg := strings.TrimSpace(p.input)
 		p.input = ""
 		p.inputCursor = 0
 		if msg == "" {
-			return "", false
+			return "", KeyActionNone
 		}
-		return msg, true
+		return msg, KeyActionSubmit
 	case KeyBackspace:
 		p.backspaceInput()
-		return "", false
+		return "", KeyActionNone
 	case KeyLeft:
 		if p.inputCursor > 0 {
 			p.inputCursor--
 		}
-		return "", false
+		return "", KeyActionNone
 	case KeyRight:
 		if p.inputCursor < utf8.RuneCountInString(p.input) {
 			p.inputCursor++
 		}
-		return "", false
+		return "", KeyActionNone
 	case KeyEsc:
-		return "", false
+		return "", KeyActionNone
 	}
 	if r, ok := k.rune(); ok && r >= 32 {
 		p.insertInput(r)
 	}
-	return "", false
+	return "", KeyActionNone
 }
 
-func (p *PaneSession) handleResultKey(k Key) {
+func (p *PaneSession) handleResultKey(k Key) (string, KeyAction) {
 	vh := p.ContentHeight()
 	switch k {
-	case KeyTab, KeyShiftTab:
-		p.focus = FocusInput
-		return
+	case KeyTab:
+		p.cycleFocus(true)
+		return "", KeyActionNone
+	case KeyShiftTab:
+		p.cycleFocus(false)
+		return "", KeyActionNone
 	case KeyDown, KeyRune('j'):
 		p.scroll++
 	case KeyUp, KeyRune('k'):
@@ -315,7 +442,7 @@ func (p *PaneSession) handleResultKey(k Key) {
 		p.scroll += vh
 	case KeyPageUp:
 		p.scroll -= vh
-	case KeyRune('d'): // half-page down (vim-ish without requiring Ctrl)
+	case KeyRune('d'):
 		step := vh / 2
 		if step < 1 {
 			step = 1
@@ -334,30 +461,128 @@ func (p *PaneSession) handleResultKey(k Key) {
 	case KeyRune('/'):
 		p.focus = FocusSearch
 		p.searchQuery = ""
-		return
+		return "", KeyActionNone
 	case KeyRune('n'):
 		p.jumpSearch(1)
-		return
+		return "", KeyActionNone
 	case KeyRune('N'):
 		p.jumpSearch(-1)
-		return
+		return "", KeyActionNone
 	case KeyEsc:
 		p.searchQuery = ""
 		p.searchMatches = nil
 		p.searchIdx = 0
 		p.matchLine = -1
-		return
+		return "", KeyActionNone
 	}
 	p.clampScroll()
+	return "", KeyActionNone
 }
 
-func (p *PaneSession) handleSearchKey(k Key) bool {
+func (p *PaneSession) handleSessionsKey(k Key) (string, KeyAction) {
+	vh := p.sessionViewportHeight()
+	switch k {
+	case KeyTab:
+		p.cycleFocus(true)
+		return "", KeyActionNone
+	case KeyShiftTab:
+		p.cycleFocus(false)
+		return "", KeyActionNone
+	case KeyDown, KeyRune('j'):
+		p.sessionCur++
+		p.clampSessionCursor()
+		return "", KeyActionNone
+	case KeyUp, KeyRune('k'):
+		p.sessionCur--
+		p.clampSessionCursor()
+		return "", KeyActionNone
+	case KeyPageDown:
+		p.sessionCur += vh
+		p.clampSessionCursor()
+		return "", KeyActionNone
+	case KeyPageUp:
+		p.sessionCur -= vh
+		p.clampSessionCursor()
+		return "", KeyActionNone
+	case KeyHome, KeyRune('g'):
+		p.sessionCur = 0
+		p.clampSessionCursor()
+		return "", KeyActionNone
+	case KeyEnd, KeyRune('G'):
+		p.sessionCur = len(p.sessions) - 1
+		p.clampSessionCursor()
+		return "", KeyActionNone
+	case KeyEnter:
+		if p.sessionCur >= 0 && p.sessionCur < len(p.sessions) {
+			key := p.sessions[p.sessionCur].Key
+			p.sessionKey = key
+			return key, KeyActionSwitchSession
+		}
+		return "", KeyActionNone
+	case KeyRune('n'):
+		return NewSessionKey(), KeyActionNewSession
+	case KeyEsc:
+		p.focus = FocusInput
+		return "", KeyActionNone
+	}
+	return "", KeyActionNone
+}
+
+func (p *PaneSession) sessionViewportHeight() int {
+	// sessions column spans content + input rows
+	h := p.height - 2
+	if h < 1 {
+		return 1
+	}
+	return h
+}
+
+func (p *PaneSession) clampSessionCursor() {
+	if len(p.sessions) == 0 {
+		p.sessionCur = 0
+		p.sessionScroll = 0
+		return
+	}
+	if p.sessionCur < 0 {
+		p.sessionCur = 0
+	}
+	if p.sessionCur >= len(p.sessions) {
+		p.sessionCur = len(p.sessions) - 1
+	}
+	vh := p.sessionViewportHeight() - 1 // header row
+	if vh < 1 {
+		vh = 1
+	}
+	if p.sessionCur < p.sessionScroll {
+		p.sessionScroll = p.sessionCur
+	}
+	if p.sessionCur >= p.sessionScroll+vh {
+		p.sessionScroll = p.sessionCur - vh + 1
+	}
+	if p.sessionScroll < 0 {
+		p.sessionScroll = 0
+	}
+}
+
+func (p *PaneSession) handleSearchKey(k Key) {
 	switch k {
 	case KeyEsc:
 		p.searchQuery = ""
 		p.searchMatches = nil
 		p.focus = FocusResult
-		return false
+		return
+	case KeyTab:
+		p.searchQuery = ""
+		p.searchMatches = nil
+		p.focus = FocusResult
+		p.cycleFocus(true)
+		return
+	case KeyShiftTab:
+		p.searchQuery = ""
+		p.searchMatches = nil
+		p.focus = FocusResult
+		p.cycleFocus(false)
+		return
 	case KeyEnter:
 		p.recomputeSearch()
 		p.focus = FocusResult
@@ -365,19 +590,18 @@ func (p *PaneSession) handleSearchKey(k Key) bool {
 			p.searchIdx = 0
 			p.scrollToMatch(0)
 		}
-		return false
+		return
 	case KeyBackspace:
 		if p.searchQuery == "" {
-			return false
+			return
 		}
 		runes := []rune(p.searchQuery)
 		p.searchQuery = string(runes[:len(runes)-1])
-		return false
+		return
 	}
 	if r, ok := k.rune(); ok && r >= 32 {
 		p.searchQuery += string(r)
 	}
-	return false
 }
 
 func (p *PaneSession) recomputeSearch() {
@@ -445,13 +669,17 @@ func (p *PaneSession) backspaceInput() {
 // Render returns a full-frame string with exactly Height lines (newline-separated).
 func (p *PaneSession) Render() string {
 	contentH := p.ContentHeight()
+	lw := p.leftWidth()
+	sw := p.sideWidth()
 	var b strings.Builder
 
-	// Top: live progress / focus
+	// Top: live progress / focus (full width)
 	b.WriteString(padTrim(p.decorateStats(), p.width))
 	b.WriteByte('\n')
 
-	// Content viewport
+	sideLines := p.renderSessionsColumn(contentH + 1) // content + input rows
+
+	// Content viewport + side
 	start := p.scroll
 	for row := 0; row < contentH; row++ {
 		idx := start + row
@@ -466,22 +694,76 @@ func (p *PaneSession) Render() string {
 		if p.focus == FocusResult {
 			prefix = "│"
 		}
-		bodyW := p.width - 1
+		bodyW := lw - 1
 		if bodyW < 1 {
 			bodyW = 1
 		}
-		b.WriteString(prefix)
-		b.WriteString(padTrim(line, bodyW))
+		left := prefix + padTrim(line, bodyW)
+		left = padTrim(left, lw)
+		if sw > 0 {
+			b.WriteString(left)
+			b.WriteString("┃")
+			b.WriteString(sideLines[row])
+		} else {
+			b.WriteString(padTrim(left, p.width))
+		}
 		b.WriteByte('\n')
 	}
 
-	// Input / search
-	b.WriteString(padTrim(p.decorateInput(), p.width))
+	// Input / search + side continuation
+	inputLine := padTrim(p.decorateInput(), lw)
+	if sw > 0 {
+		b.WriteString(inputLine)
+		b.WriteString("┃")
+		b.WriteString(sideLines[contentH])
+	} else {
+		b.WriteString(padTrim(inputLine, p.width))
+	}
 	b.WriteByte('\n')
 
-	// Bottom status bar (turn + session metrics)
+	// Bottom status bar (full width)
 	b.WriteString(padTrim(p.decorateStatus(), p.width))
 	return b.String()
+}
+
+func (p *PaneSession) renderSessionsColumn(rows int) []string {
+	sw := p.sideWidth()
+	out := make([]string, rows)
+	if sw == 0 {
+		for i := range out {
+			out[i] = ""
+		}
+		return out
+	}
+	header := "sessions"
+	if p.focus == FocusSessions {
+		header = "▸ sessions"
+	}
+	out[0] = padTrim(header, sw)
+	if rows <= 1 {
+		return out
+	}
+	for i := 1; i < rows; i++ {
+		idx := p.sessionScroll + (i - 1)
+		if idx < 0 || idx >= len(p.sessions) {
+			out[i] = padTrim("", sw)
+			continue
+		}
+		it := p.sessions[idx]
+		mark := " "
+		if it.Key == p.sessionKey {
+			mark = "●"
+		}
+		if idx == p.sessionCur && p.focus == FocusSessions {
+			mark = "▸"
+			if it.Key == p.sessionKey {
+				mark = "●"
+			}
+		}
+		title := TruncateTitle(it.Title, sw-2)
+		out[i] = padTrim(mark+title, sw)
+	}
+	return out
 }
 
 func (p *PaneSession) decorateStats() string {
@@ -489,6 +771,8 @@ func (p *PaneSession) decorateStats() string {
 	switch p.focus {
 	case FocusResult:
 		focus = "result"
+	case FocusSessions:
+		focus = "sessions"
 	case FocusSearch:
 		focus = "search"
 	}
@@ -496,7 +780,7 @@ func (p *PaneSession) decorateStats() string {
 	if base == "" {
 		base = "ready"
 	}
-	return fmt.Sprintf("%s  · %s · Tab  /search", base, focus)
+	return fmt.Sprintf("%s  · %s · Tab panes  /search", base, focus)
 }
 
 func (p *PaneSession) decorateInput() string {

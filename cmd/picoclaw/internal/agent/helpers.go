@@ -17,6 +17,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/session"
 )
 
 func agentCmd(message, sessionKey, model string, debug bool) error {
@@ -165,19 +166,77 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 	if err != nil {
 		return err
 	}
-	return ui.Run(func(msg string) error {
-		streamer := cliui.NewPaneStreamer(ui)
-		streamer.Start(msg)
-		msgBus.SetStreamDelegate(cliui.NewPaneStreamDelegate(streamer))
-		ctx := context.Background()
-		response, err := agentLoop.ProcessDirect(ctx, msg, sessionKey)
-		if err != nil {
-			streamer.Cancel(ctx)
-			return err
+
+	lister := newAgentSessionLister(agentLoop)
+	ui.SyncSessions(lister, sessionKey)
+
+	return ui.Run(func(ev cliui.PaneEvent) error {
+		switch ev.Action {
+		case cliui.KeyActionSwitchSession:
+			sessionKey = ev.Payload
+			ui.SyncSessions(lister, sessionKey)
+			hist := lister.GetHistory(sessionKey)
+			ui.ShowSessionContent(cliui.LastAssistantContent(hist))
+			return nil
+		case cliui.KeyActionNewSession:
+			sessionKey = ev.Payload
+			if sessionKey == "" {
+				sessionKey = cliui.NewSessionKey()
+			}
+			ui.SyncSessions(lister, sessionKey)
+			ui.ShowSessionContent("")
+			return nil
+		case cliui.KeyActionSubmit:
+			streamer := cliui.NewPaneStreamer(ui)
+			streamer.Start(ev.Payload)
+			msgBus.SetStreamDelegate(cliui.NewPaneStreamDelegate(streamer))
+			ctx := context.Background()
+			response, err := agentLoop.ProcessDirect(ctx, ev.Payload, sessionKey)
+			if err != nil {
+				streamer.Cancel(ctx)
+				return err
+			}
+			streamer.Finish(response)
+			ui.SyncSessions(lister, sessionKey)
+			return nil
+		default:
+			return nil
 		}
-		streamer.Finish(response)
-		return nil
 	})
+}
+
+// agentSessionLister adapts AgentLoop session store to cliui.SessionLister.
+type agentSessionLister struct {
+	store session.SessionStore
+}
+
+func newAgentSessionLister(agentLoop *agent.AgentLoop) *agentSessionLister {
+	var store session.SessionStore
+	if agentLoop != nil && agentLoop.GetRegistry() != nil {
+		if a := agentLoop.GetRegistry().GetDefaultAgent(); a != nil {
+			store = a.Sessions
+		}
+	}
+	return &agentSessionLister{store: store}
+}
+
+func (l *agentSessionLister) ListSessions() []string {
+	if l == nil || l.store == nil {
+		return nil
+	}
+	return l.store.ListSessions()
+}
+
+func (l *agentSessionLister) GetHistory(key string) []cliui.ChatMessage {
+	if l == nil || l.store == nil {
+		return nil
+	}
+	raw := l.store.GetHistory(key)
+	out := make([]cliui.ChatMessage, 0, len(raw))
+	for _, m := range raw {
+		out = append(out, cliui.ChatMessage{Role: m.Role, Content: m.Content})
+	}
+	return out
 }
 
 func simpleInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, sessionKey string) {
