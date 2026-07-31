@@ -91,7 +91,7 @@ func NewAgentTUI(prompt string) *AgentTUI {
 	progress.Text = "ready"
 	progress.TextStyle = ui.NewStyle(colorProgress)
 
-	result := newParagraph("result")
+	result := newParagraph("")
 	result.WrapText = false
 
 	sessions := widgets.NewList()
@@ -552,7 +552,8 @@ func (t *AgentTUI) refreshSessionsViewLocked() {
 }
 
 // refreshTitlesLocked keeps pane titles glanceable: the sessions pane shows how
-// many sessions exist, and the result pane shows which conversation it displays.
+// many sessions exist, and the result pane shows which conversation it displays
+// (no "result"/"input" label text — borders alone identify the panes).
 func (t *AgentTUI) refreshTitlesLocked() {
 	count := 0
 	for _, r := range t.treeRows {
@@ -562,11 +563,11 @@ func (t *AgentTUI) refreshTitlesLocked() {
 	}
 	t.sessions.Title = fmt.Sprintf("sessions · %d", count)
 
-	title := "result"
+	title := ""
 	if root := t.forest[t.currentKey]; root != nil {
 		if bc := sessionTitleFromTree(root); bc != "" && bc != "(empty)" {
-			w := maxInt(8, t.result.Inner.Dx()-12)
-			title = "result · " + TruncateTitle(bc, w)
+			w := maxInt(8, t.result.Inner.Dx()-4)
+			title = TruncateTitle(bc, w)
 		}
 	}
 	t.result.Title = title

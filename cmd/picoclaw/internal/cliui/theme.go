@@ -26,5 +26,5 @@ const (
 	connectorLine = "─" // expanded / leaf connector fill
 )
 
-// Key hints shown in pane titles so controls are discoverable at a glance.
-const inputHint = "input · ⏎ send · ^J newline · ^N new · ^H help"
+// Key hints shown in the input pane title so controls are discoverable at a glance.
+const inputHint = "⏎ send · ^J newline · ^N new · ^H help"
