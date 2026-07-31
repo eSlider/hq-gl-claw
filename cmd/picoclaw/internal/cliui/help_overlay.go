@@ -18,6 +18,7 @@ Result
   j k  ↑↓         scroll
   PgUp PgDn       page
   g G             top / bottom
+  drag-select     copy selection to clipboard
 
 Sessions tree
   j k  ↑↓         move · preview ↑/↓ in result

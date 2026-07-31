@@ -64,6 +64,8 @@ type AgentTUI struct {
 	highlightContent string
 	hasHighlight     bool
 
+	sel textSel // drag-select in result pane → clipboard
+
 	session SessionMetrics
 	last    TurnMetrics
 	busy    atomic.Bool
@@ -205,8 +207,13 @@ func (t *AgentTUI) refreshResultViewLocked() {
 	if h < 1 {
 		h = 1
 	}
+	lines := t.resultLines
+	if t.sel.active && !t.sel.empty() {
+		l0, c0, l1, c1 := t.sel.normalized()
+		lines = ApplySelectionHighlight(t.resultLines, l0, c0, l1, c1)
+	}
 	t.resultOff = ClampOffset(t.resultOff, len(t.resultLines), h)
-	t.result.Text = ViewWindow(t.resultLines, t.resultOff, h)
+	t.result.Text = ViewWindow(lines, t.resultOff, h)
 }
 
 func (t *AgentTUI) setResultPlainLocked(content string) {
@@ -708,15 +715,18 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 			t.renderAll()
 			return false
 		}
-		t.handleMouseClick(e)
+		t.handleMouseLeft(e)
 		t.renderAll()
 		return false
 	case "<MouseRelease>":
+		if t.finishResultSelect(e) {
+			t.renderAll()
+			return false
+		}
 		t.mu.Lock()
 		helping := t.showHelp
 		t.mu.Unlock()
 		if helping {
-			// Ignore hover while help is up.
 			return false
 		}
 		// tcell reports mouse motion as ButtonNone → MouseRelease.
@@ -811,13 +821,46 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 	return false
 }
 
-func (t *AgentTUI) handleMouseClick(e ui.Event) {
+func (t *AgentTUI) handleMouseLeft(e ui.Event) {
 	m, ok := e.Payload.(ui.Mouse)
 	if !ok {
 		return
 	}
 	t.mu.Lock()
 	c := ComputeChrome(t.width, t.height, t.inputRows)
+
+	// Dragging or starting a selection inside the result pane.
+	if PointInRect(c.Result, m.X, m.Y) {
+		t.focus = FocusResult
+		t.highlightFocusLocked()
+		line, col, okPos := t.resultPosLocked(m.X, m.Y)
+		if !okPos {
+			t.mu.Unlock()
+			return
+		}
+		if t.sel.dragging {
+			t.sel.bLine, t.sel.bCol = line, col
+			t.sel.active = true
+			t.refreshResultViewLocked()
+			t.mu.Unlock()
+			return
+		}
+		t.sel = textSel{
+			active:   true,
+			dragging: true,
+			aLine:    line,
+			aCol:     col,
+			bLine:    line,
+			bCol:     col,
+		}
+		t.refreshResultViewLocked()
+		t.mu.Unlock()
+		return
+	}
+
+	// Click outside result clears any selection.
+	t.clearResultSelectLocked()
+
 	focus := HitTestPane(c, m.X, m.Y)
 	if focus == FocusNone {
 		t.mu.Unlock()
@@ -844,6 +887,73 @@ func (t *AgentTUI) handleMouseClick(e ui.Event) {
 	t.mu.Unlock()
 }
 
+// resultPosLocked maps screen coords to a line/column in resultLines.
+func (t *AgentTUI) resultPosLocked(x, y int) (line, col int, ok bool) {
+	inner := t.result.Inner
+	if y < inner.Min.Y || y >= inner.Max.Y || x < inner.Min.X || x >= inner.Max.X {
+		return 0, 0, false
+	}
+	relY := y - inner.Min.Y
+	line = t.resultOff + relY
+	if line < 0 || line >= len(t.resultLines) {
+		// Allow selecting past last line as end-of-buffer.
+		if line >= len(t.resultLines) && len(t.resultLines) > 0 {
+			line = len(t.resultLines) - 1
+			plain := stripGotuiMarkup(t.resultLines[line])
+			return line, len([]rune(plain)), true
+		}
+		return 0, 0, false
+	}
+	relX := x - inner.Min.X
+	plain := stripGotuiMarkup(t.resultLines[line])
+	col = RuneIndexAtVisualCol(plain, relX)
+	return line, col, true
+}
+
+func (t *AgentTUI) clearResultSelectLocked() {
+	if !t.sel.active && !t.sel.dragging {
+		return
+	}
+	t.sel = textSel{}
+	t.refreshResultViewLocked()
+}
+
+// finishResultSelect ends a drag-select and copies the span to the clipboard.
+// Returns true when the event was consumed as a selection finish.
+func (t *AgentTUI) finishResultSelect(e ui.Event) bool {
+	m, ok := e.Payload.(ui.Mouse)
+	if !ok {
+		return false
+	}
+	t.mu.Lock()
+	if !t.sel.dragging {
+		t.mu.Unlock()
+		return false
+	}
+	if line, col, okPos := t.resultPosLocked(m.X, m.Y); okPos {
+		t.sel.bLine, t.sel.bCol = line, col
+	}
+	t.sel.dragging = false
+	t.sel.active = true
+	if t.sel.empty() {
+		t.sel = textSel{}
+		t.refreshResultViewLocked()
+		t.mu.Unlock()
+		return true
+	}
+	l0, c0, l1, c1 := t.sel.normalized()
+	text := ExtractSelection(t.resultLines, l0, c0, l1, c1)
+	t.refreshResultViewLocked()
+	t.mu.Unlock()
+	if text != "" {
+		CopyToClipboard(text)
+		t.mu.Lock()
+		t.progress.Text = "📋 copied"
+		t.mu.Unlock()
+	}
+	return true
+}
+
 func (t *AgentTUI) handleMouseHover(e ui.Event) {
 	m, ok := e.Payload.(ui.Mouse)
 	if !ok {
@@ -851,6 +961,9 @@ func (t *AgentTUI) handleMouseHover(e ui.Event) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.sel.dragging {
+		return
+	}
 	c := ComputeChrome(t.width, t.height, t.inputRows)
 	if !PointInRect(c.Sessions, m.X, m.Y) {
 		if t.treeHover != -1 {
