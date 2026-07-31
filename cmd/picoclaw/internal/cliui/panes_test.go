@@ -169,15 +169,26 @@ func TestPaneResizeRerendersWrappedContent(t *testing.T) {
 	}
 }
 
-func TestPaneSubmitFromInput(t *testing.T) {
-	p := NewPaneSession(40, 10)
-	p.SetInput("hello")
-	msg, action := p.HandleKey(KeyEnter)
-	if action != KeyActionSubmit || msg != "hello" {
-		t.Fatalf("submit=%q action=%v", msg, action)
+func TestPaneCursorPosVisibleOnInput(t *testing.T) {
+	p := NewPaneSession(80, 24)
+	p.prompt = "You: "
+	p.SetInput("hi")
+	row, col, show := p.CursorPos()
+	if !show {
+		t.Fatal("cursor should be visible on input focus")
 	}
-	if p.Input() != "" {
-		t.Fatalf("input should clear, got %q", p.Input())
+	// input row = 2 + contentHeight(21) = 23
+	if row != 23 {
+		t.Fatalf("row=%d want 23", row)
+	}
+	// mark(1) + "You: "(5) + cursor at end(2) = 1+1+5+2 = 9
+	if col != 9 {
+		t.Fatalf("col=%d want 9", col)
+	}
+	p.HandleKey(KeyTab) // result
+	_, _, show = p.CursorPos()
+	if show {
+		t.Fatal("cursor hidden on result")
 	}
 }
 

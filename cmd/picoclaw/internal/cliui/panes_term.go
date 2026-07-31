@@ -87,6 +87,12 @@ func (ui *PaneUI) redraw() {
 	defer ui.mu.Unlock()
 	frame := ui.sess.Render()
 	_, _ = io.WriteString(ui.out, "\x1b[H"+frame)
+	row, col, show := ui.sess.CursorPos()
+	if show {
+		_, _ = fmt.Fprintf(ui.out, "\x1b[%d;%dH\x1b[?25h", row, col)
+	} else {
+		_, _ = io.WriteString(ui.out, "\x1b[?25l")
+	}
 	ui.dirty.Store(false)
 }
 

@@ -794,6 +794,39 @@ func (p *PaneSession) decorateInput() string {
 	return mark + p.prompt + p.input
 }
 
+// CursorPos returns 1-based ANSI row/col for the text cursor and whether it should be visible.
+func (p *PaneSession) CursorPos() (row, col int, visible bool) {
+	if p == nil {
+		return 1, 1, false
+	}
+	// Layout rows (1-based): 1=stats, 2..1+contentH=content, 2+contentH=input, 3+contentH=status
+	inputRow := 2 + p.ContentHeight()
+	switch p.focus {
+	case FocusInput:
+		col = 1 + 1 + utf8.RuneCountInString(p.prompt) + p.inputCursor // mark + prompt + caret
+		lw := p.leftWidth()
+		if col > lw {
+			col = lw
+		}
+		if col < 1 {
+			col = 1
+		}
+		return inputRow, col, true
+	case FocusSearch:
+		col = 1 + 1 + utf8.RuneCountInString(p.searchQuery) // '/' + query (caret at end)
+		lw := p.leftWidth()
+		if col > lw {
+			col = lw
+		}
+		if col < 1 {
+			col = 1
+		}
+		return inputRow, col, true
+	default:
+		return inputRow, 1, false
+	}
+}
+
 func (p *PaneSession) decorateStatus() string {
 	if p.statusBar != "" {
 		return p.statusBar
