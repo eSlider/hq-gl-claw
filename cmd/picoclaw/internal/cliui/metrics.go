@@ -9,11 +9,21 @@ import (
 type TurnMetrics struct {
 	PromptTokens     int
 	CompletionTokens int
+	ReasoningTokens  int  // estimated tokens from model thinking/reasoning stream
 	PromptExact      bool // true when from provider usage
 	CompletionExact  bool
 	Elapsed          time.Duration
 	Streaming        bool
-	TTFT             time.Duration // time to first token; 0 if unknown
+	TTFT             time.Duration // time to first answer token; 0 if unknown
+}
+
+// GenDuration is the answer-generation window used for TPS.
+// Prefer Elapsed−TTFT when TTFT is known so thinking time is not charged to TPS.
+func (m TurnMetrics) GenDuration() time.Duration {
+	if m.TTFT > 0 && m.Elapsed > m.TTFT {
+		return m.Elapsed - m.TTFT
+	}
+	return m.Elapsed
 }
 
 // SessionMetrics accumulates turns for the interactive session.
@@ -36,16 +46,26 @@ func (s *SessionMetrics) AddTurn(m TurnMetrics) {
 }
 
 // FormatTurnStatus renders a compact turn line (go-ollama style).
-// Example: "✓ ↑1234 ↓567 · 2.3s · 45.2 tps" or with ~ for estimates.
+// Thinking (no answer tokens yet): "⏳ ↑n · 1.2s · thinking" (+ ↓think~ when known).
+// Generating / done: TPS uses GenDuration (excludes TTFT/think), not wall clock.
 func FormatTurnStatus(m TurnMetrics) string {
 	marker := "✓"
 	if m.Streaming {
 		marker = "⏳"
 	}
 	up := formatTok("↑", m.PromptTokens, m.PromptExact)
-	down := formatTok("↓", m.CompletionTokens, m.CompletionExact)
 	elapsed := formatElapsed(m.Elapsed)
-	tps := TPS(m.CompletionTokens, m.Elapsed)
+
+	// Pre-answer phase: show thinking, never a bogus 0.0 tps.
+	if m.Streaming && m.CompletionTokens == 0 {
+		if m.ReasoningTokens > 0 {
+			return fmt.Sprintf("%s %s ↓think~%d · %s · thinking", marker, up, m.ReasoningTokens, elapsed)
+		}
+		return fmt.Sprintf("%s %s · %s · thinking", marker, up, elapsed)
+	}
+
+	down := formatTok("↓", m.CompletionTokens, m.CompletionExact)
+	tps := TPS(m.CompletionTokens, m.GenDuration())
 	line := fmt.Sprintf("%s %s %s · %s · %.1f tps", marker, up, down, elapsed, tps)
 	if m.TTFT > 0 && !m.Streaming {
 		line += fmt.Sprintf(" · ttft %s", formatElapsed(m.TTFT))

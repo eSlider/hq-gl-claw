@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
 func TestFormatTurnStatus_StreamingAndDone(t *testing.T) {
@@ -34,6 +36,52 @@ func TestFormatTurnStatus_StreamingAndDone(t *testing.T) {
 	if !strings.Contains(got, "40.0") {
 		t.Fatalf("expected 40.0 tps: %q", got)
 	}
+}
+
+func TestFormatTurnStatus_ThinkingPhaseNoZeroTPS(t *testing.T) {
+	m := TurnMetrics{
+		PromptTokens:    100,
+		ReasoningTokens: 40,
+		PromptExact:     false,
+		Elapsed:         1500 * time.Millisecond,
+		Streaming:       true,
+	}
+	got := FormatTurnStatus(m)
+	if strings.Contains(got, "tps") {
+		t.Fatalf("thinking phase should not show tps: %q", got)
+	}
+	for _, want := range []string{"thinking", "↓think~40", "⏳"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("thinking status %q missing %q", got, want)
+		}
+	}
+}
+
+func TestFormatTurnStatus_TPSExcludesTTFT(t *testing.T) {
+	// 100 tokens generated in 2s after 3s think → 50 tps, not 20.
+	m := TurnMetrics{
+		PromptTokens:     10,
+		CompletionTokens: 100,
+		PromptExact:      true,
+		CompletionExact:  true,
+		Elapsed:          5 * time.Second,
+		TTFT:             3 * time.Second,
+		Streaming:        false,
+	}
+	if m.GenDuration() != 2*time.Second {
+		t.Fatalf("GenDuration=%v", m.GenDuration())
+	}
+	got := FormatTurnStatus(m)
+	if !strings.Contains(got, "50.0") {
+		t.Fatalf("expected 50.0 tps excluding think: %q", got)
+	}
+	if !strings.Contains(got, "ttft") {
+		t.Fatalf("expected ttft: %q", got)
+	}
+}
+
+func TestPaneStreamer_ImplementsReasoningStreamer(t *testing.T) {
+	var _ bus.ReasoningStreamer = NewPaneStreamer(NewAgentTUI(""))
 }
 
 func TestFormatTurnStatus_EstimatedMarked(t *testing.T) {

@@ -3,6 +3,7 @@ package cliui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,13 +12,17 @@ import (
 )
 
 // PaneStreamer streams tokens into the agent TUI result pane.
+// It implements bus.Streamer and bus.ReasoningStreamer so model "think"
+// content is shown and timed separately from answer TPS.
 type PaneStreamer struct {
 	ui *AgentTUI
 
 	mu       sync.Mutex
 	last     string
+	reason   string
 	startAt  time.Time
-	firstAt  time.Time
+	firstAt  time.Time // first answer token
+	reasonAt time.Time // first reasoning token
 	streamed atomic.Bool
 	finished bool
 
@@ -25,12 +30,13 @@ type PaneStreamer struct {
 	progDone chan struct{}
 	bar      *ProgressBar
 
-	promptEst      int
-	inTokens       int
-	outTokens      int
-	inExact        bool
-	outExact       bool
-	metricsApplied bool
+	promptEst       int
+	inTokens        int
+	outTokens       int
+	reasoningTokens int
+	inExact         bool
+	outExact        bool
+	metricsApplied  bool
 }
 
 // NewPaneStreamer returns a Streamer bound to ui.
@@ -46,11 +52,16 @@ func NewPaneStreamer(ui *AgentTUI) *PaneStreamer {
 func (s *PaneStreamer) Start(prompt string) {
 	s.mu.Lock()
 	s.startAt = time.Now()
+	s.firstAt = time.Time{}
+	s.reasonAt = time.Time{}
+	s.last = ""
+	s.reason = ""
 	s.promptEst = EstimateTokens(prompt)
 	s.inTokens = s.promptEst
 	s.inExact = false
 	s.outTokens = 0
 	s.outExact = false
+	s.reasoningTokens = 0
 	s.metricsApplied = false
 	s.finished = false
 	s.streamed.Store(false)
@@ -93,16 +104,23 @@ func (s *PaneStreamer) animateProgress(stop <-chan struct{}, done chan struct{})
 			m := s.liveMetricsLocked(elapsed, true)
 			streamed := s.streamed.Load()
 			outTok := s.outTokens
+			reasonTok := s.reasoningTokens
+			firstAt := s.firstAt
 			s.mu.Unlock()
 
 			s.ui.mu.Lock()
-			if streamed {
+			switch {
+			case streamed:
 				emoji := thinkingEmojis[tick%len(thinkingEmojis)]
-				tps := TPS(outTok, elapsedSinceFirst(s))
-				s.ui.progress.Text = fmt.Sprintf(
-					"%s %.1f tps", emoji, tps,
-				)
-			} else {
+				gen := elapsed
+				if !firstAt.IsZero() {
+					gen = time.Since(firstAt)
+				}
+				s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", emoji, TPS(outTok, gen))
+			case reasonTok > 0:
+				emoji := thinkingEmojis[tick%len(thinkingEmojis)]
+				s.ui.progress.Text = fmt.Sprintf("%s think %s", emoji, formatElapsed(elapsed))
+			default:
 				s.ui.progress.Text = EmojiProgress(tick)
 			}
 			s.ui.last = m
@@ -118,6 +136,7 @@ func (s *PaneStreamer) liveMetricsLocked(elapsed time.Duration, streaming bool) 
 	m := TurnMetrics{
 		PromptTokens:     s.inTokens,
 		CompletionTokens: s.outTokens,
+		ReasoningTokens:  s.reasoningTokens,
 		PromptExact:      s.inExact,
 		CompletionExact:  s.outExact,
 		Elapsed:          elapsed,
@@ -187,7 +206,6 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 	}
 	if !s.streamed.Swap(true) {
 		s.firstAt = time.Now()
-		// Keep progress animation running for the whole turn (tool gaps, slow tokens).
 	}
 	s.last = content
 	if !s.outExact {
@@ -195,10 +213,11 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 	}
 	elapsed := time.Since(s.startAt)
 	m := s.liveMetricsLocked(elapsed, true)
+	gen := elapsedSinceFirstLocked(s)
 
 	s.ui.mu.Lock()
 	s.ui.setResultPlainLocked(content)
-	s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", thinkingEmojis[0], TPS(m.CompletionTokens, elapsedSinceFirst(s)))
+	s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", thinkingEmojis[0], TPS(m.CompletionTokens, gen))
 	s.ui.last = m
 	s.ui.refreshStatusLocked()
 	s.ui.mu.Unlock()
@@ -206,7 +225,46 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 	return nil
 }
 
-func elapsedSinceFirst(s *PaneStreamer) time.Duration {
+// UpdateReasoning implements bus.ReasoningStreamer — show/measure model think.
+func (s *PaneStreamer) UpdateReasoning(_ context.Context, content string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.finished {
+		return nil
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	if s.reasonAt.IsZero() {
+		s.reasonAt = time.Now()
+	}
+	s.reason = content
+	s.reasoningTokens = EstimateTokens(content)
+	elapsed := time.Since(s.startAt)
+	m := s.liveMetricsLocked(elapsed, true)
+
+	s.ui.mu.Lock()
+	// Keep answer pane on think text until the first answer token arrives.
+	if !s.streamed.Load() {
+		s.ui.setResultPlainLocked("💭 thinking\n\n" + content)
+		s.ui.progress.Text = fmt.Sprintf(
+			"%s think %s", thinkingEmojis[0], formatElapsed(elapsed),
+		)
+	}
+	s.ui.last = m
+	s.ui.refreshStatusLocked()
+	s.ui.mu.Unlock()
+	s.ui.requestRedraw()
+	return nil
+}
+
+// FinalizeReasoning implements bus.ReasoningStreamer.
+func (s *PaneStreamer) FinalizeReasoning(ctx context.Context, content string) error {
+	return s.UpdateReasoning(ctx, content)
+}
+
+func elapsedSinceFirstLocked(s *PaneStreamer) time.Duration {
 	if s.firstAt.IsZero() {
 		return time.Since(s.startAt)
 	}
@@ -235,7 +293,8 @@ func (s *PaneStreamer) Finish(content string) {
 		s.last = content
 	}
 	if !s.streamed.Load() {
-		s.firstAt = time.Now()
+		// Non-streaming answer: charge the whole turn to generation (no TTFT split).
+		s.firstAt = s.startAt
 	}
 	if !s.outExact {
 		s.outTokens = EstimateTokens(s.last)
@@ -252,7 +311,7 @@ func (s *PaneStreamer) Finish(content string) {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPrettyLocked(last)
-	s.ui.progress.Text = "✅ done"
+	s.ui.progress.Text = fmt.Sprintf("✅ %.1f tps", TPS(m.CompletionTokens, m.GenDuration()))
 	s.ui.mu.Unlock()
 	if !applied {
 		s.ui.applyTurnMetrics(m)
