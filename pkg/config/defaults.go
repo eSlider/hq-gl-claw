@@ -233,6 +233,16 @@ func DefaultConfig() *Config {
 				APIBase:   "http://localhost:11434/v1",
 			},
 
+			// llama.cpp / local OpenAI-compatible HTTP API (default local)
+			{
+				ModelName: "bonsai",
+				Provider:  "openai",
+				Model:     "bonsai",
+				APIBase:   "http://127.0.0.1:9988/v1",
+				Enabled:   true,
+				Streaming: ModelStreamingConfig{Enabled: true},
+			},
+
 			// Mistral AI - https://console.mistral.ai/api-keys
 			{
 				ModelName: "mistral-small",

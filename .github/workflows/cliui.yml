@@ -1,0 +1,45 @@
+name: CLI UI
+
+on:
+  push:
+    branches: [main, feat/**]
+    paths:
+      - 'cmd/picoclaw/internal/cliui/**'
+      - 'cmd/picoclaw/internal/agent/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/cliui.yml'
+  pull_request:
+    paths:
+      - 'cmd/picoclaw/internal/cliui/**'
+      - 'cmd/picoclaw/internal/agent/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/cliui.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: CLI UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./cmd/picoclaw/internal/cliui/... ./cmd/picoclaw/internal/agent/
+
+      - name: Test
+        run: go test -race -count=1 ./cmd/picoclaw/internal/cliui/... ./cmd/picoclaw/internal/agent/
+
+      - name: Bench smoke (mdansi A/B)
+        run: go test ./cmd/picoclaw/internal/cliui/ ./cmd/picoclaw/internal/cliui/mdansi/ -bench='BenchmarkRenderMarkdown|BenchmarkPrintAgentResponse' -benchmem -count=1
+
+      - name: Test mdansi
+        run: go test -race -count=1 ./cmd/picoclaw/internal/cliui/mdansi/
