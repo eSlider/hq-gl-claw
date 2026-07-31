@@ -66,6 +66,7 @@ func (s *PaneStreamer) Start(prompt string) {
 		Streaming:    true,
 		Elapsed:      0,
 	}
+	s.ui.progress.Text = EmojiProgress(0)
 	s.ui.refreshStatusLocked()
 	s.ui.mu.Unlock()
 	s.ui.requestRedraw()
@@ -83,15 +84,27 @@ func (s *PaneStreamer) animateProgress(stop <-chan struct{}, done chan struct{})
 		case <-stop:
 			return
 		case <-ticker.C:
-			if s.streamed.Load() || s.finished {
-				continue
+			s.mu.Lock()
+			if s.finished {
+				s.mu.Unlock()
+				return
 			}
 			elapsed := time.Since(s.startAt)
-			s.mu.Lock()
 			m := s.liveMetricsLocked(elapsed, true)
+			streamed := s.streamed.Load()
+			outTok := s.outTokens
 			s.mu.Unlock()
+
 			s.ui.mu.Lock()
-			s.ui.progress.Text = EmojiProgress(tick)
+			if streamed {
+				emoji := thinkingEmojis[tick%len(thinkingEmojis)]
+				tps := TPS(outTok, elapsedSinceFirst(s))
+				s.ui.progress.Text = fmt.Sprintf(
+					"%s %.1f tps", emoji, tps,
+				)
+			} else {
+				s.ui.progress.Text = EmojiProgress(tick)
+			}
 			s.ui.last = m
 			s.ui.refreshStatusLocked()
 			s.ui.mu.Unlock()
@@ -174,14 +187,7 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 	}
 	if !s.streamed.Swap(true) {
 		s.firstAt = time.Now()
-		ch := s.stopProg
-		if ch != nil {
-			select {
-			case <-ch:
-			default:
-				close(ch)
-			}
-		}
+		// Keep progress animation running for the whole turn (tool gaps, slow tokens).
 	}
 	s.last = content
 	if !s.outExact {
@@ -192,7 +198,7 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPlainLocked(content)
-	s.ui.progress.Text = fmt.Sprintf("✨ %.1f tps", TPS(m.CompletionTokens, elapsedSinceFirst(s)))
+	s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", thinkingEmojis[0], TPS(m.CompletionTokens, elapsedSinceFirst(s)))
 	s.ui.last = m
 	s.ui.refreshStatusLocked()
 	s.ui.mu.Unlock()

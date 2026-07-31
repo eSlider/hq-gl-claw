@@ -63,16 +63,18 @@ func PairTurns(msgs []ChatMessage) []TurnPair {
 
 // BuildSessionTreeRows builds a session → request/response tree.
 // expanded[key]==true shows children; current session defaults expanded when map is nil.
+// retainKeys are always kept in the tree (see BuildSessionItems).
 func BuildSessionTreeRows(
 	src SessionLister,
 	currentKey string,
 	titleWidth int,
 	expanded map[string]bool,
+	retainKeys ...string,
 ) []SessionTreeRow {
 	if titleWidth < 8 {
 		titleWidth = 8
 	}
-	items := BuildSessionItems(src, currentKey, titleWidth)
+	items := BuildSessionItems(src, currentKey, titleWidth, retainKeys...)
 	out := make([]SessionTreeRow, 0, len(items)*3)
 	for _, it := range items {
 		exp := it.Key == currentKey

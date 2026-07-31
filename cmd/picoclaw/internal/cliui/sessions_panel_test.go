@@ -64,3 +64,23 @@ func TestBuildSessionItems(t *testing.T) {
 		t.Fatalf("missing current session title: %+v", items)
 	}
 }
+
+func TestBuildSessionItems_RetainKeys(t *testing.T) {
+	src := &fakeLister{
+		order: []string{"cli:new"},
+		keys: map[string][]ChatMessage{
+			"cli:new": {},
+			"cli:old": {{Role: "user", Content: "keep me"}},
+		},
+	}
+	items := BuildSessionItems(src, "cli:new", 40, "cli:old")
+	found := false
+	for _, it := range items {
+		if it.Key == "cli:old" && it.Title == "keep me" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("retain key missing: %+v", items)
+	}
+}

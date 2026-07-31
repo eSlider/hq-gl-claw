@@ -70,7 +70,9 @@ type SessionLister interface {
 }
 
 // BuildSessionItems lists sessions (cli:* preferred), titles from last user request.
-func BuildSessionItems(src SessionLister, currentKey string, titleWidth int) []SessionItem {
+// retainKeys keeps sessions visible in the tree even if the store has not listed
+// them yet (e.g. after Ctrl+N before the previous key is re-queried).
+func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, retainKeys ...string) []SessionItem {
 	if titleWidth < 8 {
 		titleWidth = 8
 	}
@@ -78,12 +80,15 @@ func BuildSessionItems(src SessionLister, currentKey string, titleWidth int) []S
 		return []SessionItem{{Key: currentKey, Title: "(empty)"}}
 	}
 	keys := src.ListSessions()
-	cliKeys := make([]string, 0, len(keys))
+	cliKeys := make([]string, 0, len(keys)+len(retainKeys)+1)
 	other := make([]string, 0)
 	seen := map[string]struct{}{}
-	for _, k := range keys {
+	add := func(k string) {
 		if k == "" {
-			continue
+			return
+		}
+		if _, ok := seen[k]; ok {
+			return
 		}
 		seen[k] = struct{}{}
 		if strings.HasPrefix(k, "cli:") {
@@ -92,14 +97,20 @@ func BuildSessionItems(src SessionLister, currentKey string, titleWidth int) []S
 			other = append(other, k)
 		}
 	}
-	if _, ok := seen[currentKey]; !ok && currentKey != "" {
-		cliKeys = append(cliKeys, currentKey)
+	for _, k := range keys {
+		add(k)
 	}
+	for _, k := range retainKeys {
+		add(k)
+	}
+	add(currentKey)
 	sort.Strings(cliKeys)
 	sort.Strings(other)
 	ordered := cliKeys
 	if len(ordered) == 0 {
 		ordered = other
+	} else {
+		ordered = append(ordered, other...)
 	}
 	items := make([]SessionItem, 0, len(ordered))
 	for _, k := range ordered {

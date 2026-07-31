@@ -35,8 +35,11 @@ Bottom row: **status** (left, turn/session metrics) shares the corner with **pro
 
 - **Level 1 — session** (`▼/▶ ● title` = last user request)
 - **Level 2 — turn** (`↑` request, `↓` response)
-- Current session is expanded by default; click/Enter a leaf to show it in **result**
-- Click/Enter another session node to switch; Enter on current toggles expand
+- Current session is expanded by default; click/Enter a session **displays** it
+  (always expands — collapse only with `h` / Left)
+- Hover (mouse move) or j/k over ↑/↓ **scrolls** the result transcript to that
+  block and draws a **thin** (non-rounded) highlight box — does not replace content
+- Ctrl+N starts a new session without removing prior sessions from the tree
 
 ### Launch / session restore
 
@@ -48,19 +51,21 @@ else newest `cli:<nano>`, else `cli:default`. Force with `-s KEY`.
 | Input | Action |
 |-------|--------|
 | Tab / Shift+Tab | Cycle focus: input ↔ result ↔ sessions |
-| Mouse click | Focus pane; in tree, select + activate row |
+| Mouse click | Focus pane; session → display; ↑/↓ → thin-box highlight |
+| Mouse move (hover) | Over ↑/↓ → scroll + thin-box highlight in result |
 | Mouse wheel | Scroll result or sessions under cursor |
-| Enter / Space / l | Activate tree row (switch / show req\|resp) |
+| Enter / Space / l | Activate tree row (display session / highlight req\|resp) |
 | h / Left | Collapse session node |
-| j/k ↑↓ | Move cursor / scroll in focused pane |
+| j/k ↑↓ | Move cursor; preview highlight for ↑/↓ rows |
 | Ctrl+J | Newline in input |
-| Ctrl+N | **New session** (any focus) |
+| Ctrl+N | **New session** (any focus; keeps prior sessions in tree) |
 | n | **New session** (sessions focus) |
 | Esc / Ctrl+C | Quit |
 | `exit` / `quit` | Quit from input |
 
 Waiting for a reply: **emoji** animation in the bottom-right progress cell
-(`🦞💭✨🔮…`), then `✨ N tps`, then `✅ done`. Left status keeps ↑↓ metrics.
+(`🦞💭✨🔮…`) for the **whole turn** (including tool gaps after the first token),
+then `✅ done`. Left status keeps ↑↓ metrics with `⏳` while streaming.
 
 Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
 optional ttft, session Σ, focus name.

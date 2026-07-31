@@ -46,9 +46,17 @@ type AgentTUI struct {
 	treeRows      []SessionTreeRow
 	treeSel       int
 	treeTop       int
+	treeHover     int // row under mouse; -1 if none
 	treeExpanded  map[string]bool
+	retainKeys    map[string]struct{}
 	sessionLister SessionLister
 	currentKey    string
+
+	transcriptPlain  string
+	transcriptBlocks []TranscriptBlock
+	highlightKind    TreeRowKind
+	highlightContent string
+	hasHighlight     bool
 
 	session SessionMetrics
 	last    TurnMetrics
@@ -108,7 +116,9 @@ func NewAgentTUI(prompt string) *AgentTUI {
 		width:        80,
 		height:       24,
 		inputRows:    3,
+		treeHover:    -1,
 		treeExpanded: map[string]bool{},
+		retainKeys:   map[string]struct{}{},
 		redrawCh:     make(chan struct{}, 1),
 		eventCh:      make(chan PaneEvent, 8),
 	}
@@ -184,6 +194,9 @@ func (t *AgentTUI) refreshResultViewLocked() {
 func (t *AgentTUI) setResultPlainLocked(content string) {
 	t.plainBuf = content
 	t.pretty = false
+	t.transcriptPlain = ""
+	t.transcriptBlocks = nil
+	t.hasHighlight = false
 	t.resultLines = strings.Split(content, "\n")
 	t.resultOff = maxInt(0, len(t.resultLines)-maxInt(1, t.result.Inner.Dy()))
 	t.refreshResultViewLocked()
@@ -192,6 +205,9 @@ func (t *AgentTUI) setResultPlainLocked(content string) {
 func (t *AgentTUI) setResultPrettyLocked(content string) {
 	t.plainBuf = content
 	t.pretty = true
+	t.transcriptPlain = ""
+	t.transcriptBlocks = nil
+	t.hasHighlight = false
 	w := t.result.Inner.Dx()
 	if w < 20 {
 		w = 40
@@ -205,12 +221,72 @@ func (t *AgentTUI) setResultPrettyLocked(content string) {
 	t.refreshResultViewLocked()
 }
 
+func (t *AgentTUI) setTranscriptLocked(msgs []ChatMessage) {
+	text, blocks := FormatSessionTranscript(msgs)
+	t.transcriptPlain = text
+	t.transcriptBlocks = blocks
+	t.plainBuf = text
+	t.pretty = false
+	t.hasHighlight = false
+	t.resultLines = strings.Split(text, "\n")
+	if text == "" {
+		t.resultLines = nil
+	}
+	t.resultOff = maxInt(0, len(t.resultLines)-maxInt(1, t.result.Inner.Dy()))
+	t.refreshResultViewLocked()
+}
+
+func (t *AgentTUI) applyHoverHighlightLocked(kind TreeRowKind, content string) {
+	if t.transcriptPlain == "" || len(t.transcriptBlocks) == 0 {
+		return
+	}
+	bl, ok := FindTranscriptBlock(t.transcriptBlocks, kind, content)
+	if !ok {
+		return
+	}
+	base := strings.Split(t.transcriptPlain, "\n")
+	if t.transcriptPlain == "" {
+		base = nil
+	}
+	w := t.result.Inner.Dx()
+	if w < 20 {
+		w = 40
+	}
+	t.resultLines = ApplyThinHighlight(base, bl.LineStart, bl.LineEnd, w)
+	t.highlightKind = kind
+	t.highlightContent = content
+	t.hasHighlight = true
+	h := maxInt(1, t.result.Inner.Dy())
+	// Account for the inserted top border line shifting the block down by 1.
+	t.resultOff = ScrollToHighlightOffset(bl.LineStart, len(t.resultLines), h)
+	t.refreshResultViewLocked()
+}
+
+func (t *AgentTUI) clearHoverHighlightLocked() {
+	if !t.hasHighlight || t.transcriptPlain == "" {
+		return
+	}
+	t.hasHighlight = false
+	t.resultLines = strings.Split(t.transcriptPlain, "\n")
+	t.refreshResultViewLocked()
+}
+
 // SyncSessions refreshes the right-hand session tree from a lister.
 func (t *AgentTUI) SyncSessions(src SessionLister, currentKey string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.sessionLister = src
 	t.currentKey = currentKey
+	if currentKey != "" {
+		t.retainKeys[currentKey] = struct{}{}
+	}
+	if src != nil {
+		for _, k := range src.ListSessions() {
+			if k != "" {
+				t.retainKeys[k] = struct{}{}
+			}
+		}
+	}
 	if _, ok := t.treeExpanded[currentKey]; !ok {
 		t.treeExpanded[currentKey] = true
 	}
@@ -218,12 +294,36 @@ func (t *AgentTUI) SyncSessions(src SessionLister, currentKey string) {
 	t.requestRedraw()
 }
 
+// RetainSession keeps key visible in the sessions tree across Ctrl+N / rebuilds.
+func (t *AgentTUI) RetainSession(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.retainKeys == nil {
+		t.retainKeys = map[string]struct{}{}
+	}
+	t.retainKeys[key] = struct{}{}
+	t.rebuildTreeLocked()
+	t.requestRedraw()
+}
+
+func (t *AgentTUI) retainKeyListLocked() []string {
+	out := make([]string, 0, len(t.retainKeys))
+	for k := range t.retainKeys {
+		out = append(out, k)
+	}
+	return out
+}
+
 func (t *AgentTUI) rebuildTreeLocked() {
 	tw := 16
 	if t.sessions.Inner.Dx() > 4 {
 		tw = t.sessions.Inner.Dx() - 4
 	}
-	t.treeRows = BuildSessionTreeRows(t.sessionLister, t.currentKey, tw, t.treeExpanded)
+	t.treeRows = BuildSessionTreeRows(t.sessionLister, t.currentKey, tw, t.treeExpanded, t.retainKeyListLocked()...)
 	// Prefer selecting the current session row after rebuild.
 	sel := 0
 	for i, r := range t.treeRows {
@@ -274,6 +374,14 @@ func (t *AgentTUI) ShowSessionContent(content string) {
 	} else {
 		t.setResultPrettyLocked(content)
 	}
+	t.requestRedraw()
+}
+
+// ShowSessionHistory loads a full ↑/↓ transcript for hover navigation.
+func (t *AgentTUI) ShowSessionHistory(msgs []ChatMessage) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.setTranscriptLocked(msgs)
 	t.requestRedraw()
 }
 
@@ -350,6 +458,11 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 		return false
 	case "<MouseLeft>":
 		t.handleMouseClick(e)
+		t.renderAll()
+		return false
+	case "<MouseRelease>":
+		// tcell reports mouse motion as ButtonNone → MouseRelease.
+		t.handleMouseHover(e)
 		t.renderAll()
 		return false
 	case "<MouseWheelUp>", "<MouseWheelDown>":
@@ -441,6 +554,43 @@ func (t *AgentTUI) handleMouseClick(e ui.Event) {
 	t.mu.Unlock()
 }
 
+func (t *AgentTUI) handleMouseHover(e ui.Event) {
+	m, ok := e.Payload.(ui.Mouse)
+	if !ok {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	c := ComputeChrome(t.width, t.height, t.inputRows)
+	if !PointInRect(c.Sessions, m.X, m.Y) {
+		if t.treeHover != -1 {
+			t.treeHover = -1
+			t.clearHoverHighlightLocked()
+		}
+		return
+	}
+	innerY := t.sessions.Inner.Min.Y
+	rel := m.Y - innerY
+	if rel < 0 {
+		return
+	}
+	idx := t.treeTop + rel
+	if idx < 0 || idx >= len(t.treeRows) {
+		return
+	}
+	if idx == t.treeHover && t.hasHighlight {
+		return
+	}
+	t.treeHover = idx
+	row := t.treeRows[idx]
+	switch row.Kind {
+	case TreeRowRequest, TreeRowResponse:
+		t.applyHoverHighlightLocked(row.Kind, row.Content)
+	default:
+		t.clearHoverHighlightLocked()
+	}
+}
+
 func (t *AgentTUI) handleMouseWheel(e ui.Event) {
 	m, ok := e.Payload.(ui.Mouse)
 	if !ok {
@@ -476,11 +626,15 @@ func (t *AgentTUI) handleMouseWheel(e ui.Event) {
 func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 	switch row.Kind {
 	case TreeRowSession:
-		// Toggle expand when already current; otherwise switch session.
+		// Click/Enter always displays the session (expand + switch). Collapse via h only.
 		t.mu.Lock()
-		if row.SessionKey == t.currentKey {
-			t.treeExpanded[row.SessionKey] = !t.treeExpanded[row.SessionKey]
+		t.treeExpanded[row.SessionKey] = true
+		same := row.SessionKey == t.currentKey
+		if same {
 			t.rebuildTreeLocked()
+			if t.sessionLister != nil {
+				t.setTranscriptLocked(t.sessionLister.GetHistory(row.SessionKey))
+			}
 			t.mu.Unlock()
 			t.requestRedraw()
 			return
@@ -488,10 +642,9 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 		t.mu.Unlock()
 		t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: row.SessionKey})
 	case TreeRowRequest, TreeRowResponse:
-		t.ShowSessionContent(row.Content)
+		// Preview in place — do not replace the transcript with a single message.
 		t.mu.Lock()
-		t.focus = FocusResult
-		t.highlightFocusLocked()
+		t.applyHoverHighlightLocked(row.Kind, row.Content)
 		t.mu.Unlock()
 		t.requestRedraw()
 	}
@@ -532,6 +685,7 @@ func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 			t.treeSel++
 		}
 		t.refreshSessionsViewLocked()
+		t.previewTreeSelectionLocked()
 		t.mu.Unlock()
 		return true
 	case "k", "<Up>":
@@ -539,16 +693,19 @@ func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 			t.treeSel--
 		}
 		t.refreshSessionsViewLocked()
+		t.previewTreeSelectionLocked()
 		t.mu.Unlock()
 		return true
 	case "<PageDown>":
 		t.treeSel = ClampOffset(t.treeSel+h, n, 1)
 		t.refreshSessionsViewLocked()
+		t.previewTreeSelectionLocked()
 		t.mu.Unlock()
 		return true
 	case "<PageUp>":
 		t.treeSel = ClampOffset(t.treeSel-h, n, 1)
 		t.refreshSessionsViewLocked()
+		t.previewTreeSelectionLocked()
 		t.mu.Unlock()
 		return true
 	case "<Enter>", "<Space>", "l", "<Right>":
@@ -568,6 +725,7 @@ func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 			key := t.treeRows[idx].SessionKey
 			t.treeExpanded[key] = false
 			t.rebuildTreeLocked()
+			t.clearHoverHighlightLocked()
 		}
 		t.mu.Unlock()
 		return true
@@ -578,6 +736,19 @@ func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 	default:
 		t.mu.Unlock()
 		return false
+	}
+}
+
+func (t *AgentTUI) previewTreeSelectionLocked() {
+	if t.treeSel < 0 || t.treeSel >= len(t.treeRows) {
+		return
+	}
+	row := t.treeRows[t.treeSel]
+	switch row.Kind {
+	case TreeRowRequest, TreeRowResponse:
+		t.applyHoverHighlightLocked(row.Kind, row.Content)
+	default:
+		t.clearHoverHighlightLocked()
 	}
 }
 
