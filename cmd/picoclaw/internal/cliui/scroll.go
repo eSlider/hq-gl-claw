@@ -94,8 +94,11 @@ func ApplyScrollbar(window []string, total, offset, page, width int) []string {
 		return window
 	}
 	contentW := width - 1
-	out := make([]string, len(window))
+	out := make([]string, page)
 	for i, line := range window {
+		if i >= page {
+			break
+		}
 		fitted := FitLineWidth(line, contentW)
 		glyph := glyphScrollTrack
 		style := "fg:white"
@@ -106,7 +109,7 @@ func ApplyScrollbar(window []string, total, offset, page, width int) []string {
 		out[i] = fitted + "[" + glyph + "](" + style + ")"
 	}
 	// Pad short viewports so the track fills the pane height.
-	for i := len(out); i < page; i++ {
+	for i := len(window); i < page; i++ {
 		pad := strings.Repeat(" ", contentW)
 		glyph := glyphScrollTrack
 		style := "fg:white"
@@ -114,7 +117,7 @@ func ApplyScrollbar(window []string, total, offset, page, width int) []string {
 			glyph = glyphScrollThumb
 			style = "fg:cyan"
 		}
-		out = append(out, pad+"["+glyph+"]("+style+")")
+		out[i] = pad + "[" + glyph + "](" + style + ")"
 	}
 	return out
 }

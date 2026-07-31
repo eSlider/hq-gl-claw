@@ -25,7 +25,7 @@ func TestNormalizeLang(t *testing.T) {
 
 func TestHighlight_HTML(t *testing.T) {
 	toks := Highlight("html", `<div class="x"><!-- c -->hi</div>`)
-	var kinds []TokenKind
+	kinds := make([]TokenKind, 0, len(toks))
 	var joined strings.Builder
 	for _, tok := range toks {
 		kinds = append(kinds, tok.Kind)

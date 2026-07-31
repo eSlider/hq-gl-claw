@@ -3,9 +3,6 @@ package cliui
 // progressSpinners cycles while waiting / streaming (quarter-circle + related).
 var progressSpinners = []string{"◐", "◓", "◑", "◒"}
 
-// thinkingEmojis is kept as an alias so older call sites keep compiling.
-var thinkingEmojis = progressSpinners
-
 // SpinnerFrame returns the spinner glyph for tick n.
 func SpinnerFrame(tick int) string {
 	if tick < 0 {

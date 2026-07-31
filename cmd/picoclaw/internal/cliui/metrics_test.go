@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-runewidth"
+
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
