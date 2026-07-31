@@ -26,11 +26,11 @@ func PanesEnabled() bool {
 type AgentTUI struct {
 	prompt string
 
-	stats    *widgets.Paragraph
+	progress *widgets.Paragraph // bottom-right: emoji / streaming
 	result   *widgets.Paragraph
 	sessions *widgets.List
 	input    *widgets.TextArea
-	status   *widgets.Paragraph
+	status   *widgets.Paragraph // bottom-left: turn metrics
 
 	mu        sync.Mutex
 	focus     Focus
@@ -61,11 +61,12 @@ type AgentTUI struct {
 
 // NewAgentTUI builds the interactive TUI (not yet initialized on the terminal).
 func NewAgentTUI(prompt string) *AgentTUI {
-	stats := widgets.NewParagraph()
-	stats.Title = "stats"
-	stats.Border = true
-	stats.BorderRounded = true
-	stats.Text = "ready"
+	progress := widgets.NewParagraph()
+	progress.Title = ""
+	progress.Border = true
+	progress.BorderRounded = true
+	progress.Text = "ready"
+	progress.TextStyle = ui.NewStyle(ui.ColorYellow)
 
 	result := widgets.NewParagraph()
 	result.Title = "result"
@@ -98,7 +99,7 @@ func NewAgentTUI(prompt string) *AgentTUI {
 
 	return &AgentTUI{
 		prompt:       prompt,
-		stats:        stats,
+		progress:     progress,
 		result:       result,
 		sessions:     sessions,
 		input:        input,
@@ -127,11 +128,11 @@ func (t *AgentTUI) requestRedraw() {
 
 func (t *AgentTUI) applyChromeLocked() {
 	c := ComputeChrome(t.width, t.height, t.inputRows)
-	setWidgetRect(t.stats, c.Stats)
 	setWidgetRect(t.result, c.Result)
 	setWidgetRect(t.sessions, c.Sessions)
 	setWidgetRect(t.input, c.Input)
 	setWidgetRect(t.status, c.Status)
+	setWidgetRect(t.progress, c.Progress)
 	t.refreshResultViewLocked()
 	t.refreshSessionsViewLocked()
 	t.highlightFocusLocked()
@@ -147,10 +148,11 @@ func setWidgetRect(w interface {
 func (t *AgentTUI) highlightFocusLocked() {
 	idle := ui.NewStyle(ui.ColorWhite)
 	active := ui.NewStyle(ui.ColorCyan)
-	t.stats.BorderStyle.Fg = idle.Fg
 	t.result.BorderStyle.Fg = idle.Fg
 	t.sessions.BorderStyle.Fg = idle.Fg
 	t.input.BorderStyle.Fg = idle.Fg
+	t.status.BorderStyle.Fg = idle.Fg
+	t.progress.BorderStyle.Fg = idle.Fg
 	switch t.focus {
 	case FocusResult:
 		t.result.BorderStyle.Fg = active.Fg
@@ -289,7 +291,7 @@ func (t *AgentTUI) renderAll() {
 	t.applyChromeLocked()
 	t.mu.Unlock()
 	ui.Clear()
-	ui.Render(t.stats, t.result, t.sessions, t.input, t.status)
+	ui.Render(t.result, t.sessions, t.input, t.status, t.progress)
 }
 
 // Run enters the gotui event loop until quit. handler receives submit/session events.
@@ -322,7 +324,7 @@ func (t *AgentTUI) Run(handler func(PaneEvent) error) error {
 				}
 				if err != nil {
 					t.mu.Lock()
-					t.stats.Text = fmt.Sprintf("error: %v", err)
+					t.progress.Text = fmt.Sprintf("⚠️ %v", err)
 					t.mu.Unlock()
 				}
 				t.busy.Store(false)

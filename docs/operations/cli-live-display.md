@@ -17,17 +17,19 @@ streaming stays plain text.
 
 ```
 ┌────────────────────────────────────┬──────────────────┐
-│ stats: 🦞 thinking… / ✨ tps       │ sessions tree    │
-├────────────────────────────────────┤ ▼ ● last ask…    │
-│ result (scrollable)                │     ↑ request    │
-│ …                                  │     ↓ response   │
-│                                    │ ▶ ● older…       │
-├────────────────────────────────────┤                  │
-│ input (TextArea, UTF-8 / Cyrillic) │                  │
+│ result (scrollable)                │ sessions tree    │
+│ …                                  │ ▼ ● last ask…    │
+│                                    │     ↑ request    │
+│                                    │     ↓ response   │
 ├────────────────────────────────────┴──────────────────┤
-│ ✓ ↑1234 ↓567 · 2.30s · 45.2 tps · Σ … · focus         │
-└───────────────────────────────────────────────────────┘
+│ input (TextArea, UTF-8 / Cyrillic)                    │
+├────────────────────────────────────┬──────────────────┤
+│ ✓ ↑in ↓out · tps · Σ · focus       │ 🦞 thinking…     │
+└────────────────────────────────────┴──────────────────┘
 ```
+
+Bottom row: **status** (left, turn/session metrics) shares the corner with **progress**
+(right — emoji thinking / streaming tps / done).
 
 ### Sessions tree
 
@@ -57,8 +59,8 @@ else newest `cli:<nano>`, else `cli:default`. Force with `-s KEY`.
 | Esc / Ctrl+C | Quit |
 | `exit` / `quit` | Quit from input |
 
-Waiting for a reply: **emoji** animation in stats (`🦞💭✨🔮…`), then
-`✨ streaming · N tps`, then `✅ done`.
+Waiting for a reply: **emoji** animation in the bottom-right progress cell
+(`🦞💭✨🔮…`), then `✨ N tps`, then `✅ done`. Left status keeps ↑↓ metrics.
 
 Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
 optional ttft, session Σ, focus name.

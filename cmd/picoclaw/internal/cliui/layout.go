@@ -6,12 +6,13 @@ type Rect struct {
 }
 
 // Chrome holds layout rectangles for the interactive agent TUI.
+// Progress shares the bottom row with Status (right corner under sessions).
 type Chrome struct {
-	Stats    Rect
 	Result   Rect
 	Sessions Rect
 	Input    Rect
-	Status   Rect
+	Status   Rect // bottom-left: turn/session metrics
+	Progress Rect // bottom-right: emoji / streaming progress
 }
 
 const (
@@ -20,7 +21,6 @@ const (
 	minResultH   = 3
 	// gotui Block.SetRect always insets Inner by 1 row/col; bordered
 	// widgets need outer H>=3 for one line of text (top+content+bottom).
-	statsH  = 3
 	statusH = 3
 )
 
@@ -49,25 +49,25 @@ func ComputeChrome(width, height, inputRows int) Chrome {
 	resultW := width - sessW
 
 	// Prefer keeping inputRows; shrink result if needed, never below minResultH.
-	used := statsH + inputRows + statusH
+	used := inputRows + statusH
 	resultH := height - used
 	if resultH < minResultH {
-		// Shrink input to fit.
-		inputRows = height - statsH - statusH - minResultH
+		inputRows = height - statusH - minResultH
 		if inputRows < 1 {
 			inputRows = 1
 		}
-		resultH = height - statsH - inputRows - statusH
+		resultH = height - inputRows - statusH
 		if resultH < minResultH {
 			resultH = minResultH
 		}
 	}
 
+	bottomY := resultH + inputRows
 	return Chrome{
-		Stats:    Rect{X: 0, Y: 0, W: resultW, H: statsH},
-		Result:   Rect{X: 0, Y: statsH, W: resultW, H: resultH},
-		Sessions: Rect{X: resultW, Y: 0, W: sessW, H: statsH + resultH},
-		Input:    Rect{X: 0, Y: statsH + resultH, W: width, H: inputRows},
-		Status:   Rect{X: 0, Y: statsH + resultH + inputRows, W: width, H: statusH},
+		Result:   Rect{X: 0, Y: 0, W: resultW, H: resultH},
+		Sessions: Rect{X: resultW, Y: 0, W: sessW, H: resultH},
+		Input:    Rect{X: 0, Y: resultH, W: width, H: inputRows},
+		Status:   Rect{X: 0, Y: bottomY, W: resultW, H: statusH},
+		Progress: Rect{X: resultW, Y: bottomY, W: sessW, H: statusH},
 	}
 }

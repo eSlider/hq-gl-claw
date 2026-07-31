@@ -91,7 +91,7 @@ func (s *PaneStreamer) animateProgress(stop <-chan struct{}, done chan struct{})
 			m := s.liveMetricsLocked(elapsed, true)
 			s.mu.Unlock()
 			s.ui.mu.Lock()
-			s.ui.stats.Text = EmojiProgress(tick)
+			s.ui.progress.Text = EmojiProgress(tick)
 			s.ui.last = m
 			s.ui.refreshStatusLocked()
 			s.ui.mu.Unlock()
@@ -192,7 +192,7 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPlainLocked(content)
-	s.ui.stats.Text = fmt.Sprintf("✨ streaming · %.1f tps", TPS(m.CompletionTokens, elapsedSinceFirst(s)))
+	s.ui.progress.Text = fmt.Sprintf("✨ %.1f tps", TPS(m.CompletionTokens, elapsedSinceFirst(s)))
 	s.ui.last = m
 	s.ui.refreshStatusLocked()
 	s.ui.mu.Unlock()
@@ -246,7 +246,7 @@ func (s *PaneStreamer) Finish(content string) {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPrettyLocked(last)
-	s.ui.stats.Text = "✅ done"
+	s.ui.progress.Text = "✅ done"
 	s.ui.mu.Unlock()
 	if !applied {
 		s.ui.applyTurnMetrics(m)

@@ -76,11 +76,11 @@ func TestSessionMetrics_AddTurn(t *testing.T) {
 
 func TestChromeIncludesStatusBar(t *testing.T) {
 	c := ComputeChrome(80, 24, 1)
-	if c.Stats.H != 3 || c.Status.H != 3 || c.Input.H != 1 {
-		t.Fatalf("chrome stats=%d input=%d status=%d", c.Stats.H, c.Input.H, c.Status.H)
+	if c.Status.H != 3 || c.Progress.H != 3 || c.Input.H != 1 {
+		t.Fatalf("chrome progress=%d input=%d status=%d", c.Progress.H, c.Input.H, c.Status.H)
 	}
-	if c.Result.H != 17 { // 24 - 3 - 1 - 3
-		t.Fatalf("result H=%d want 17", c.Result.H)
+	if c.Result.H != 20 { // 24 - 1 - 3
+		t.Fatalf("result H=%d want 20", c.Result.H)
 	}
 	bar := FormatStatusBar(
 		TurnMetrics{
