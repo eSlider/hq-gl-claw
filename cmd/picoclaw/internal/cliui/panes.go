@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Focus identifies the active pane.
@@ -85,6 +87,7 @@ type PaneSession struct {
 	sessionKey    string
 	sessionCur    int
 	sessionScroll int
+	prettyContent bool // glamour-render content on rewrap
 }
 
 // NewPaneSession creates a session with the given terminal size.
@@ -291,9 +294,20 @@ func (p *PaneSession) leftWidth() int {
 	return p.width - sw - 1 // divider column
 }
 
-// SetContent replaces result text and rewraps.
+// SetContent replaces result text and rewraps with markdown styling when enabled.
 func (p *PaneSession) SetContent(s string) {
+	p.SetContentPretty(s, true)
+}
+
+// SetContentPlain replaces result text without markdown styling (streaming).
+func (p *PaneSession) SetContentPlain(s string) {
+	p.SetContentPretty(s, false)
+}
+
+// SetContentPretty replaces result text; pretty enables glamour on rewrap.
+func (p *PaneSession) SetContentPretty(s string, pretty bool) {
 	p.content = s
+	p.prettyContent = pretty
 	p.rewrap()
 	p.clampScroll()
 	if p.searchQuery != "" {
@@ -301,12 +315,13 @@ func (p *PaneSession) SetContent(s string) {
 	}
 }
 
-// AppendContent appends text (streaming) and rewraps.
+// AppendContent appends text (streaming) and rewraps as plain.
 func (p *PaneSession) AppendContent(delta string) {
 	if delta == "" {
 		return
 	}
 	p.content += delta
+	p.prettyContent = false
 	p.rewrap()
 	// Follow tail while generating if already near bottom.
 	if p.scroll >= p.MaxScroll()-1 {
@@ -326,7 +341,22 @@ func (p *PaneSession) rewrap() {
 	if wrapWidth < 1 {
 		wrapWidth = 1
 	}
+	if p.prettyContent && p.content != "" && glamourEnabled() {
+		rendered := RenderMarkdownWidth(p.content, wrapWidth)
+		if rendered != p.content {
+			p.lines = splitDisplayLines(rendered)
+			return
+		}
+	}
 	p.lines = wrapText(p.content, wrapWidth)
+}
+
+func splitDisplayLines(s string) []string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return []string{}
+	}
+	return strings.Split(s, "\n")
 }
 
 func wrapText(s string, width int) []string {
@@ -610,7 +640,7 @@ func (p *PaneSession) recomputeSearch() {
 		return
 	}
 	for i, line := range p.lines {
-		if strings.Contains(line, p.searchQuery) {
+		if lineContains(line, p.searchQuery) {
 			p.searchMatches = append(p.searchMatches, i)
 		}
 	}
@@ -686,7 +716,7 @@ func (p *PaneSession) Render() string {
 		line := ""
 		if idx >= 0 && idx < len(p.lines) {
 			line = p.lines[idx]
-			if p.searchQuery != "" && strings.Contains(line, p.searchQuery) {
+			if p.searchQuery != "" && lineContains(line, p.searchQuery) {
 				line = highlightMatch(line, p.searchQuery)
 			}
 		}
@@ -698,8 +728,8 @@ func (p *PaneSession) Render() string {
 		if bodyW < 1 {
 			bodyW = 1
 		}
-		left := prefix + padTrim(line, bodyW)
-		left = padTrim(left, lw)
+		left := prefix + fitCell(line, bodyW)
+		left = fitCell(left, lw)
 		if sw > 0 {
 			b.WriteString(left)
 			b.WriteString("┃")
@@ -845,10 +875,63 @@ func padTrim(s string, width int) string {
 	return s
 }
 
+// fitCell pads/trims for layout. ANSI-styled lines are not truncated (glamour
+// already wrapped); only trailing spaces are added to fill the cell.
+func fitCell(s string, width int) string {
+	if width < 1 {
+		return ""
+	}
+	if !strings.Contains(s, "\x1b") {
+		return padTrim(s, width)
+	}
+	vis := lipgloss.Width(s)
+	if vis >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-vis)
+}
+
+func stripANSI(s string) string {
+	if !strings.Contains(s, "\x1b") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			i += 2
+			for i < len(s) {
+				c := s[i]
+				i++
+				if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+					break
+				}
+			}
+			i-- // for-loop will i++
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func lineContains(line, query string) bool {
+	if query == "" {
+		return false
+	}
+	if strings.Contains(line, query) {
+		return true
+	}
+	return strings.Contains(stripANSI(line), query)
+}
+
 func highlightMatch(line, query string) string {
-	if query == "" || !strings.Contains(line, query) {
+	if query == "" || !lineContains(line, query) {
 		return line
 	}
-	// Simple markers (no ANSI) so tests stay stable; TTY can color later.
+	// Avoid breaking ANSI styled lines; only mark plain text matches.
+	if strings.Contains(line, "\x1b") {
+		return line
+	}
 	return strings.ReplaceAll(line, query, "«"+query+"»")
 }

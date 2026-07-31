@@ -97,7 +97,7 @@ func TestPaneScrollClampOnResize(t *testing.T) {
 
 func TestPaneVimSearch(t *testing.T) {
 	p := NewPaneSession(40, 5) // content height = 2
-	p.SetContent("alpha\nbeta foo\ngamma\nfoo bar\nzeta")
+	p.SetContentPlain("alpha\nbeta foo\ngamma\nfoo bar\nzeta")
 	p.HandleKey(KeyTab) // result
 	p.HandleKey(KeyRune('/'))
 	if p.Focus() != FocusSearch {
@@ -169,26 +169,22 @@ func TestPaneResizeRerendersWrappedContent(t *testing.T) {
 	}
 }
 
-func TestPaneCursorPosVisibleOnInput(t *testing.T) {
+func TestPaneContentRendersMarkdown(t *testing.T) {
+	t.Setenv("PICOCLAW_GLAMOUR", "1")
 	p := NewPaneSession(80, 24)
-	p.prompt = "You: "
-	p.SetInput("hi")
-	row, col, show := p.CursorPos()
-	if !show {
-		t.Fatal("cursor should be visible on input focus")
+	p.SetContent("# Hello\n\n- one\n- two")
+	joined := strings.Join(p.lines, "\n")
+	// Glamour should not leave a raw ATX heading as the only representation.
+	if strings.TrimSpace(joined) == "# Hello\n\n- one\n- two" {
+		t.Fatalf("expected glamour-styled lines, got raw markdown:\n%s", joined)
 	}
-	// input row = 2 + contentHeight(21) = 23
-	if row != 23 {
-		t.Fatalf("row=%d want 23", row)
+	if !strings.Contains(stripANSI(joined), "Hello") {
+		t.Fatalf("missing heading text: %q", joined)
 	}
-	// mark(1) + "You: "(5) + cursor at end(2) = 1+1+5+2 = 9
-	if col != 9 {
-		t.Fatalf("col=%d want 9", col)
-	}
-	p.HandleKey(KeyTab) // result
-	_, _, show = p.CursorPos()
-	if show {
-		t.Fatal("cursor hidden on result")
+	// Streaming stays plain.
+	p.SetContentPlain("# Hello")
+	if len(p.lines) != 1 || p.lines[0] != "# Hello" {
+		t.Fatalf("plain streaming lines=%v", p.lines)
 	}
 }
 

@@ -28,6 +28,9 @@ Inspired by [go-ollama TUI](https://github.com/eSlider/go-ollama/blob/main/examp
 Right panel: current session (●) first, then previous `cli:*` sessions.
 Row title = **last user request**, truncated.
 
+Result pane: final answers are **glamour-styled** markdown (`PICOCLAW_GLAMOUR=0` to disable);
+streaming shows plain text until the turn completes.
+
 Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
 optional ttft, plus session Σ totals.
 

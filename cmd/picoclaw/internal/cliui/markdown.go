@@ -44,8 +44,10 @@ func glamourStyleName() string {
 	return "light"
 }
 
-func markdownRenderer() (*glamour.TermRenderer, error) {
-	width := InnerWidth()
+func markdownRendererWidth(width int) (*glamour.TermRenderer, error) {
+	if width < 20 {
+		width = 20
+	}
 	style := glamourStyleName()
 
 	mdMu.Lock()
@@ -70,10 +72,15 @@ func markdownRenderer() (*glamour.TermRenderer, error) {
 // RenderMarkdown renders markdown for terminal display. On failure or when
 // glamour is disabled, returns the original text unchanged.
 func RenderMarkdown(markdown string) string {
+	return RenderMarkdownWidth(markdown, InnerWidth())
+}
+
+// RenderMarkdownWidth is RenderMarkdown with an explicit wrap width (pane column).
+func RenderMarkdownWidth(markdown string, width int) string {
 	if markdown == "" || !glamourEnabled() {
 		return markdown
 	}
-	r, err := markdownRenderer()
+	r, err := markdownRendererWidth(width)
 	if err != nil {
 		return markdown
 	}

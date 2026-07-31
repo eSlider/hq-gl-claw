@@ -430,7 +430,7 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 	m := s.liveMetricsLocked(elapsed, true)
 
 	s.ui.mu.Lock()
-	s.ui.sess.SetContent(content)
+	s.ui.sess.SetContentPlain(content)
 	s.ui.sess.SetStats(fmt.Sprintf("streaming · %.1f tps", TPS(m.CompletionTokens, elapsedSinceFirst(s))))
 	s.ui.last = m
 	s.ui.refreshStatusLocked("input")

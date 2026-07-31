@@ -299,16 +299,24 @@ func (d *LiveDisplay) Finish(content string) {
 	if !d.streamed.Load() {
 		d.firstAt = time.Now()
 		d.streamed.Store(true)
-		delay := d.typeDelay
+		d.last = content
 		d.mu.Unlock()
-		for _, r := range content {
-			d.writeOut(string(r))
-			if delay > 0 {
-				time.Sleep(delay)
+		out := content
+		if glamourEnabled() {
+			if styled := RenderMarkdown(content); styled != "" {
+				out = styled
+			}
+			d.writeOut(out)
+		} else {
+			delay := d.typeDelay
+			for _, r := range out {
+				d.writeOut(string(r))
+				if delay > 0 {
+					time.Sleep(delay)
+				}
 			}
 		}
 		d.mu.Lock()
-		d.last = content
 	} else if content != "" && content != d.last {
 		if strings.HasPrefix(content, d.last) {
 			d.writeOut(content[len(d.last):])
