@@ -60,7 +60,7 @@ Resize clears and re-lays out via `ComputeChrome` + gotui `Render`.
 
 ## A/B
 
-See [mdansi-ab.md](mdansi-ab.md) for plain vs mdansi benches and binary/RSS.
+See [mdansi-ab.md](mdansi-ab.md) for **plain → glamour (previous PR) → mdansi+gotui (current)** benches, binary/RSS, and the Bubble Tea note (planned Charm rewrite, not shipped).
 
 ## Tests
 
