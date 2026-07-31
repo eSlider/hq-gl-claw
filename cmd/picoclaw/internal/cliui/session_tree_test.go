@@ -56,6 +56,10 @@ func TestBuildSessionTreeRows_ExpandCurrent(t *testing.T) {
 	if sessions != 2 {
 		t.Fatalf("sessions=%d", sessions)
 	}
+	// Inactive sessions stay title-only stubs until expanded.
+	if len(forest["cli:b"].Children) != 0 {
+		t.Fatalf("inactive session should be lazy stub, kids=%d", len(forest["cli:b"].Children))
+	}
 	// cli:a expanded (nested req+resp); cli:b collapsed at session only when default
 	if reqs < 1 || resps < 1 {
 		t.Fatalf("reqs=%d resps=%d", reqs, resps)
@@ -79,6 +83,9 @@ func TestBuildSessionTreeRows_Collapse(t *testing.T) {
 	root := forest["cli:a"]
 	if root == nil {
 		t.Fatal("no root")
+	}
+	if len(root.Children) != 0 {
+		t.Fatalf("collapsed session should not load turns, kids=%d", len(root.Children))
 	}
 	// Only session row when collapsed via session key.
 	if len(rows) != 1 || rows[0].Kind != TreeRowSession {

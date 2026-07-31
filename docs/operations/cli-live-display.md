@@ -64,7 +64,7 @@ else newest `cli:<nano>`, else `cli:default`. Force with `-s KEY`.
 | Ctrl+H / F1 | Toggle help popup with shortcuts |
 | Tab / Shift+Tab | Cycle focus: input ↔ result ↔ sessions |
 | Mouse click | Focus pane; session → display; ↑/↓ → thin-box highlight |
-| Mouse move (hover) | Over ↑/↓ → scroll + thin-box highlight in result |
+| Mouse move (hover) | Over ↑/↓ → scroll + thin-box highlight in result; session hover only redraws when the hovered row changes (motion floods are ignored) |
 | Mouse drag (result) | Select text → copy to system clipboard |
 | Mouse wheel | Scroll result or sessions under cursor |
 | Enter / Space / l | Activate tree row (display session / highlight req\|resp) |

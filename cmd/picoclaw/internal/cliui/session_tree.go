@@ -85,22 +85,38 @@ func BuildSessionTreeRows(
 	items := BuildSessionItems(src, currentKey, titleWidth, retainKeys...)
 	out := make([]SessionTreeRow, 0, len(items)*4)
 	for _, it := range items {
+		wantKids := sessionWantsChildren(it.Key, currentKey, expanded)
 		root, ok := forest[it.Key]
 		if !ok || root == nil {
-			var msgs []ChatMessage
-			if src != nil {
-				msgs = src.GetHistory(it.Key)
+			if !wantKids {
+				// Collapsed / inactive: title-only stub (history already read for title).
+				root = &ConvNode{
+					ID:      gen.next(it.Key),
+					Kind:    TreeRowSession,
+					Session: it.Key,
+					Content: it.Title,
+				}
+			} else {
+				var msgs []ChatMessage
+				if src != nil {
+					msgs = src.GetHistory(it.Key)
+				}
+				root = BuildConvTreeFromHistory(it.Key, it.Title, msgs, gen)
 			}
-			root = BuildConvTreeFromHistory(it.Key, it.Title, msgs, gen)
 			forest[it.Key] = root
 		} else {
 			root.Content = it.Title
-			if src != nil {
-				ReconcileConvTree(root, src.GetHistory(it.Key), gen)
+			if wantKids && src != nil {
+				if len(root.Children) == 0 {
+					root = BuildConvTreeFromHistory(it.Key, it.Title, src.GetHistory(it.Key), gen)
+					forest[it.Key] = root
+				} else {
+					ReconcileConvTree(root, src.GetHistory(it.Key), gen)
+				}
 			}
 		}
 		// Honor session-key collapse in expanded map.
-		sessionCollapsed := false
+		sessionCollapsed := !wantKids
 		if expanded != nil {
 			if v, ok := expanded[it.Key]; ok {
 				expanded[root.ID] = v
@@ -117,4 +133,15 @@ func BuildSessionTreeRows(
 		out = append(out, FlattenConvTree(root, currentKey, titleWidth, expanded)...)
 	}
 	return out, forest
+}
+
+// sessionWantsChildren is true when the session tree should load turn nodes
+// (active session by default, or explicitly expanded).
+func sessionWantsChildren(key, currentKey string, expanded map[string]bool) bool {
+	if expanded != nil {
+		if v, ok := expanded[key]; ok {
+			return v
+		}
+	}
+	return key == currentKey
 }

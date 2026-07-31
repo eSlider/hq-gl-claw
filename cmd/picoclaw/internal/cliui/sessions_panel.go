@@ -69,13 +69,14 @@ type SessionLister interface {
 	GetHistory(key string) []ChatMessage
 }
 
-// BuildSessionItems lists sessions (cli:* preferred), titles from last user request.
+// BuildSessionItems lists cli:* sessions (plus currentKey), titles from last user request.
 // retainKeys keeps sessions visible in the tree even if the store has not listed
 // them yet (e.g. after Ctrl+N before the previous key is re-queried).
 //
-// Order is stable: newest cli:* keys first (by key), then other keys. The active
-// session is NOT moved — only the ●/○ glyph marks it. Reordering on select made
-// the list jump and hid previous sessions under the fold.
+// Order is stable: newest cli:* keys first (by key). The active session is NOT
+// moved — only the ●/○ glyph marks it. Reordering on select made the list jump
+// and hid previous sessions under the fold. Non-cli channel sessions are omitted
+// so startup does not load every workspace transcript.
 func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, retainKeys ...string) []SessionItem {
 	if titleWidth < 8 {
 		titleWidth = 8
@@ -85,7 +86,6 @@ func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, ret
 	}
 	keys := src.ListSessions()
 	cliKeys := make([]string, 0, len(keys)+len(retainKeys)+1)
-	other := make([]string, 0)
 	seen := map[string]struct{}{}
 	add := func(k string) {
 		if k == "" {
@@ -94,12 +94,12 @@ func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, ret
 		if _, ok := seen[k]; ok {
 			return
 		}
-		seen[k] = struct{}{}
-		if strings.HasPrefix(k, "cli:") {
-			cliKeys = append(cliKeys, k)
-		} else {
-			other = append(other, k)
+		// Interactive agent pane lists cli:* only (plus explicit currentKey).
+		if !strings.HasPrefix(k, "cli:") && k != currentKey {
+			return
 		}
+		seen[k] = struct{}{}
+		cliKeys = append(cliKeys, k)
 	}
 	for _, k := range keys {
 		add(k)
@@ -110,10 +110,8 @@ func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, ret
 	add(currentKey)
 	// Newest-looking keys first (cli:<unixnano> sorts lexicographically by time).
 	sort.SliceStable(cliKeys, func(i, j int) bool { return cliKeys[i] > cliKeys[j] })
-	sort.SliceStable(other, func(i, j int) bool { return other[i] > other[j] })
-	ordered := append(cliKeys, other...)
-	items := make([]SessionItem, 0, len(ordered))
-	for _, k := range ordered {
+	items := make([]SessionItem, 0, len(cliKeys))
+	for _, k := range cliKeys {
 		title := LastUserRequestTitle(src.GetHistory(k), titleWidth)
 		items = append(items, SessionItem{Key: k, Title: title})
 	}

@@ -121,3 +121,18 @@ func TestBuildSessionItems_RetainKeys(t *testing.T) {
 		t.Fatalf("retain key missing: %+v", items)
 	}
 }
+
+func TestBuildSessionItems_SkipsNonCLI(t *testing.T) {
+	src := &fakeLister{
+		order: []string{"sk_v1_channel", "cli:a", "agent:main:x"},
+		keys: map[string][]ChatMessage{
+			"sk_v1_channel": {{Role: "user", Content: "channel"}},
+			"cli:a":         {{Role: "user", Content: "cli"}},
+			"agent:main:x":  {{Role: "user", Content: "agent"}},
+		},
+	}
+	items := BuildSessionItems(src, "cli:a", 40)
+	if len(items) != 1 || items[0].Key != "cli:a" {
+		t.Fatalf("want only cli:a, got %+v", items)
+	}
+}

@@ -307,7 +307,9 @@ func (t *AgentTUI) SyncSessions(src SessionLister, currentKey string) {
 	}
 	if src != nil {
 		for _, k := range src.ListSessions() {
-			if k != "" {
+			// CLI pane only tracks cli:* sessions — loading every channel
+			// session on startup made SyncSessions feel like a hang.
+			if k != "" && strings.HasPrefix(k, "cli:") {
 				t.retainKeys[k] = struct{}{}
 			}
 		}
@@ -729,9 +731,10 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 		if helping {
 			return false
 		}
-		// tcell reports mouse motion as ButtonNone → MouseRelease.
-		t.handleMouseHover(e)
-		t.renderAll()
+		// Motion without buttons arrives as MouseRelease; only repaint when hover changes.
+		if t.handleMouseHover(e) {
+			t.renderAll()
+		}
 		return false
 	case "<MouseWheelUp>", "<MouseWheelDown>":
 		t.mu.Lock()
@@ -954,41 +957,43 @@ func (t *AgentTUI) finishResultSelect(e ui.Event) bool {
 	return true
 }
 
-func (t *AgentTUI) handleMouseHover(e ui.Event) {
+func (t *AgentTUI) handleMouseHover(e ui.Event) bool {
 	m, ok := e.Payload.(ui.Mouse)
 	if !ok {
-		return
+		return false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.sel.dragging {
-		return
+		return false
 	}
 	c := ComputeChrome(t.width, t.height, t.inputRows)
 	if !PointInRect(c.Sessions, m.X, m.Y) {
 		if t.treeHover != -1 {
 			t.treeHover = -1
 			t.clearHoverHighlightLocked()
+			return true
 		}
-		return
+		return false
 	}
 	innerY := t.sessions.Inner.Min.Y
 	rel := m.Y - innerY
 	if rel < 0 {
-		return
+		return false
 	}
 	idx := t.treeTop + rel
 	if idx < 0 || idx >= len(t.treeRows) {
-		return
+		return false
 	}
-	if idx == t.treeHover && t.hasHighlight {
-		return
+	// Same row: hover/highlight already applied — skip redraw (motion floods).
+	if idx == t.treeHover {
+		return false
 	}
 	t.treeHover = idx
 	row := t.treeRows[idx]
 	if row.SessionKey != t.currentKey {
 		t.clearHoverHighlightLocked()
-		return
+		return true
 	}
 	t.selectedID = row.NodeID
 	switch row.Kind {
@@ -997,6 +1002,7 @@ func (t *AgentTUI) handleMouseHover(e ui.Event) {
 	default:
 		t.clearHoverHighlightLocked()
 	}
+	return true
 }
 
 func (t *AgentTUI) handleMouseWheel(e ui.Event) {
