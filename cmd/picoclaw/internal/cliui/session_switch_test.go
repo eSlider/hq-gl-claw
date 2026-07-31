@@ -90,6 +90,62 @@ func TestRebuildTree_IgnoresForeignSelectedID(t *testing.T) {
 	}
 }
 
+func TestActivateSession_KeepsSiblingsListed(t *testing.T) {
+	src := &fakeLister{
+		order: []string{"cli:100", "cli:200", "cli:300"},
+		keys: map[string][]ChatMessage{
+			"cli:100": {{Role: "user", Content: "a"}, {Role: "assistant", Content: "aa"}},
+			"cli:200": {{Role: "user", Content: "b"}, {Role: "assistant", Content: "bb"}},
+			"cli:300": {{Role: "user", Content: "c"}, {Role: "assistant", Content: "cc"}},
+		},
+	}
+	ui := NewAgentTUI("")
+	ui.width, ui.height = 80, 24
+	ui.SyncSessions(src, "cli:300")
+
+	// Activate oldest session (would previously jump to list top).
+	ui.mu.Lock()
+	var oldRow SessionTreeRow
+	for _, r := range ui.treeRows {
+		if r.Kind == TreeRowSession && r.SessionKey == "cli:100" {
+			oldRow = r
+			break
+		}
+	}
+	ui.mu.Unlock()
+	if oldRow.NodeID == "" {
+		t.Fatal("missing cli:100 row")
+	}
+	ui.activateTreeRow(oldRow)
+
+	ui.mu.Lock()
+	defer ui.mu.Unlock()
+	if ui.currentKey != "cli:100" {
+		t.Fatalf("current=%q", ui.currentKey)
+	}
+	var sessionKeys []string
+	for _, r := range ui.treeRows {
+		if r.Kind == TreeRowSession {
+			sessionKeys = append(sessionKeys, r.SessionKey)
+		}
+	}
+	if len(sessionKeys) != 3 {
+		t.Fatalf("expected 3 session roots, got %v", sessionKeys)
+	}
+	// Stable newest-first order preserved.
+	want := []string{"cli:300", "cli:200", "cli:100"}
+	for i, k := range want {
+		if sessionKeys[i] != k {
+			t.Fatalf("order=%v want %v", sessionKeys, want)
+		}
+	}
+	// Selected session must not be forced to index 0 of treeRows as a reorder.
+	if ui.treeRows[0].SessionKey == "cli:100" && ui.treeRows[0].Kind == TreeRowSession {
+		// Only OK if it is genuinely newest — it is not.
+		t.Fatal("active session jumped to top of list")
+	}
+}
+
 func TestActivateRequest_SwitchesSession(t *testing.T) {
 	src := &fakeLister{
 		order: []string{"cli:a", "cli:b"},

@@ -65,6 +65,43 @@ func TestBuildSessionItems(t *testing.T) {
 	}
 }
 
+func TestBuildSessionItems_StableOrderNoActiveJump(t *testing.T) {
+	src := &fakeLister{
+		order: []string{"cli:100", "cli:200", "cli:150"},
+		keys: map[string][]ChatMessage{
+			"cli:100": {{Role: "user", Content: "old"}},
+			"cli:150": {{Role: "user", Content: "mid"}},
+			"cli:200": {{Role: "user", Content: "new"}},
+		},
+	}
+	// Active is the oldest — must NOT jump to index 0.
+	items := BuildSessionItems(src, "cli:100", 40)
+	if len(items) != 3 {
+		t.Fatalf("items=%d %+v", len(items), items)
+	}
+	if items[0].Key != "cli:200" {
+		t.Fatalf("newest should stay first, got %q", items[0].Key)
+	}
+	if items[2].Key != "cli:100" {
+		t.Fatalf("active oldest should stay last, got %+v", items)
+	}
+	// Selecting a different current key must not reshuffle relative order.
+	items2 := BuildSessionItems(src, "cli:150", 40)
+	for i := range items {
+		if items[i].Key != items2[i].Key {
+			t.Fatalf("order changed on select: %v vs %v", keysOf(items), keysOf(items2))
+		}
+	}
+}
+
+func keysOf(items []SessionItem) []string {
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = it.Key
+	}
+	return out
+}
+
 func TestBuildSessionItems_RetainKeys(t *testing.T) {
 	src := &fakeLister{
 		order: []string{"cli:new"},

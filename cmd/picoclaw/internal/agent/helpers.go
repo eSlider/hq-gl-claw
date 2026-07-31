@@ -193,11 +193,11 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			if sessionKey == "" {
 				sessionKey = cliui.NewSessionKey()
 			}
-			_ = cliui.SaveLastCLISession(home, sessionKey)
-			ui.SyncSessions(lister, sessionKey)
 			if prev != "" {
 				ui.RetainSession(prev)
 			}
+			_ = cliui.SaveLastCLISession(home, sessionKey)
+			ui.SyncSessions(lister, sessionKey)
 			return nil
 		case cliui.KeyActionSubmit:
 			if ev.SessionKey != "" {

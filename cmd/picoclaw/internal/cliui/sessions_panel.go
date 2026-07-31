@@ -72,6 +72,10 @@ type SessionLister interface {
 // BuildSessionItems lists sessions (cli:* preferred), titles from last user request.
 // retainKeys keeps sessions visible in the tree even if the store has not listed
 // them yet (e.g. after Ctrl+N before the previous key is re-queried).
+//
+// Order is stable: newest cli:* keys first (by key), then other keys. The active
+// session is NOT moved — only the ●/○ glyph marks it. Reordering on select made
+// the list jump and hid previous sessions under the fold.
 func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, retainKeys ...string) []SessionItem {
 	if titleWidth < 8 {
 		titleWidth = 8
@@ -104,14 +108,10 @@ func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, ret
 		add(k)
 	}
 	add(currentKey)
-	sort.Strings(cliKeys)
-	sort.Strings(other)
-	ordered := cliKeys
-	if len(ordered) == 0 {
-		ordered = other
-	} else {
-		ordered = append(ordered, other...)
-	}
+	// Newest-looking keys first (cli:<unixnano> sorts lexicographically by time).
+	sort.SliceStable(cliKeys, func(i, j int) bool { return cliKeys[i] > cliKeys[j] })
+	sort.SliceStable(other, func(i, j int) bool { return other[i] > other[j] })
+	ordered := append(cliKeys, other...)
 	items := make([]SessionItem, 0, len(ordered))
 	for _, k := range ordered {
 		title := LastUserRequestTitle(src.GetHistory(k), titleWidth)
@@ -120,26 +120,7 @@ func BuildSessionItems(src SessionLister, currentKey string, titleWidth int, ret
 	if len(items) == 0 {
 		items = append(items, SessionItem{Key: currentKey, Title: "(empty)"})
 	}
-	// Active session first, then the rest (previous) in reverse chrono by key suffix.
-	return orderSessionsActiveFirst(items, currentKey)
-}
-
-func orderSessionsActiveFirst(items []SessionItem, currentKey string) []SessionItem {
-	if len(items) <= 1 {
-		return items
-	}
-	out := make([]SessionItem, 0, len(items))
-	rest := make([]SessionItem, 0, len(items))
-	for _, it := range items {
-		if it.Key == currentKey {
-			out = append(out, it)
-		} else {
-			rest = append(rest, it)
-		}
-	}
-	// Newest-looking keys last in list below current → reverse sort rest.
-	sort.SliceStable(rest, func(i, j int) bool { return rest[i].Key > rest[j].Key })
-	return append(out, rest...)
+	return items
 }
 
 // NewSessionKey returns a fresh cli session key.

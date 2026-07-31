@@ -305,9 +305,14 @@ func (t *AgentTUI) SyncSessions(src SessionLister, currentKey string) {
 			}
 		}
 	}
+	alreadyFocused := prev == currentKey && currentKey != ""
 	t.focusSessionLocked(prev, currentKey)
 	t.rebuildTreeLocked()
-	t.loadTranscriptForCurrentLocked()
+	// Avoid clobbering a transcript/highlight the activator just loaded when the
+	// event handler re-syncs after an in-UI session switch.
+	if !alreadyFocused {
+		t.loadTranscriptForCurrentLocked()
+	}
 	t.requestRedraw()
 }
 
@@ -925,6 +930,7 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 			}
 			t.selectedID = row.NodeID
 			t.rebuildTreeLocked()
+			t.pinTreeSelLocked()
 			t.loadTranscriptForCurrentLocked()
 			t.mu.Unlock()
 			t.requestRedraw()
@@ -934,6 +940,7 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 		t.focusSessionLocked(prev, row.SessionKey)
 		t.selectedID = row.NodeID
 		t.rebuildTreeLocked()
+		t.pinTreeSelLocked()
 		t.loadTranscriptForCurrentLocked()
 		key := row.SessionKey
 		t.mu.Unlock()
@@ -962,6 +969,14 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 	}
 }
 
+// pinTreeSelLocked scrolls the sessions list so the selected row sits near the
+// top of the viewport (without reordering the underlying session list).
+func (t *AgentTUI) pinTreeSelLocked() {
+	h := maxInt(1, t.sessions.Inner.Dy())
+	t.treeTop = ClampOffset(t.treeSel, len(t.treeRows), h)
+	t.refreshSessionsViewLocked()
+}
+
 // selectLeafLocked focuses row's session (if different), selects the node,
 // reveals it in the tree, previews its content, and — for requests — optionally
 // autofills the input. Returns whether the active session changed.
@@ -974,6 +989,7 @@ func (t *AgentTUI) selectLeafLocked(row SessionTreeRow, autofill bool) bool {
 	ExpandAncestors(t.treeExpanded, t.nodeByIDLocked(row.NodeID))
 	t.rebuildTreeLocked()
 	if switched {
+		t.pinTreeSelLocked()
 		t.loadTranscriptForCurrentLocked()
 	}
 	if autofill {
