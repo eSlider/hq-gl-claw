@@ -844,23 +844,6 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 	}
 }
 
-func collectSessionTranscript(root *ConvNode) []ChatMessage {
-	if root == nil {
-		return nil
-	}
-	// Prefer full depth-first path messages of the deepest tip.
-	var tip *ConvNode
-	var walk func(*ConvNode)
-	walk = func(n *ConvNode) {
-		tip = n
-		for _, c := range n.Children {
-			walk(c)
-		}
-	}
-	walk(root)
-	return PathMessages(tip)
-}
-
 func (t *AgentTUI) handleResultKey(e ui.Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
