@@ -16,7 +16,7 @@ Input
   ↑↓←→            move cursor
 
 Result
-  j k  ↑↓         scroll
+  j k  ↑↓         scroll (│/█ bar when overflow)
   PgUp PgDn       page
   g G             top / bottom
   drag-select     copy selection to clipboard

@@ -218,6 +218,15 @@ func (t *AgentTUI) SetProgressText(s string) {
 	t.requestRedraw()
 }
 
+func (t *AgentTUI) resultContentWidthLocked() int {
+	dx := t.result.Inner.Dx()
+	if dx < 2 {
+		// Before first layout Inner may be empty.
+		return 40
+	}
+	return dx - 1 // reserve right column for scrollbar
+}
+
 func (t *AgentTUI) refreshResultViewLocked() {
 	h := t.result.Inner.Dy()
 	if h < 1 {
@@ -232,7 +241,13 @@ func (t *AgentTUI) refreshResultViewLocked() {
 		lines = ApplySelectionHighlight(t.resultLines, l0, c0, l1, c1)
 	}
 	t.resultOff = ClampOffset(t.resultOff, len(t.resultLines), h)
-	t.result.Text = ViewWindow(lines, t.resultOff, h)
+	view := ViewWindowLines(lines, t.resultOff, h)
+	w := t.result.Inner.Dx()
+	if w < 2 {
+		w = 2
+	}
+	view = ApplyScrollbar(view, len(t.resultLines), t.resultOff, h, w)
+	t.result.Text = strings.Join(view, "\n")
 }
 
 func (t *AgentTUI) setResultPlainLocked(content string) {
@@ -254,10 +269,7 @@ func (t *AgentTUI) setResultPrettyLocked(content string) {
 	t.transcriptMsgs = nil
 	t.transcriptBlocks = nil
 	t.hasHighlight = false
-	w := t.result.Inner.Dx()
-	if w < 20 {
-		w = 40
-	}
+	w := t.resultContentWidthLocked()
 	rendered := content
 	if markdownEnabled() {
 		rendered = mdansi.RenderGotui(content, w)
@@ -268,10 +280,7 @@ func (t *AgentTUI) setResultPrettyLocked(content string) {
 }
 
 func (t *AgentTUI) setTranscriptLocked(msgs []ChatMessage) {
-	w := t.result.Inner.Dx()
-	if w < 20 {
-		w = 40
-	}
+	w := t.resultContentWidthLocked()
 	text, blocks := FormatSessionTranscriptWidth(msgs, w)
 	t.transcriptMsgs = msgs
 	t.transcriptPlain = text
@@ -299,10 +308,7 @@ func (t *AgentTUI) applyHoverHighlightLocked(kind TreeRowKind, content string) {
 	if t.transcriptPlain == "" {
 		base = nil
 	}
-	w := t.result.Inner.Dx()
-	if w < 20 {
-		w = 40
-	}
+	w := t.resultContentWidthLocked()
 	t.resultLines = ApplyThinHighlight(base, bl.LineStart, bl.LineEnd, w)
 	t.highlightKind = kind
 	t.highlightContent = content
@@ -953,6 +959,15 @@ func (t *AgentTUI) resultPosLocked(x, y int) (line, col int, ok bool) {
 		return 0, 0, false
 	}
 	relX := x - inner.Min.X
+	contentW := inner.Dx() - 1
+	if contentW < 1 {
+		contentW = 1
+	}
+	// Clicks on the scrollbar gutter map to end-of-line, not a new column.
+	if relX >= contentW {
+		plain := stripGotuiMarkup(t.resultLines[line])
+		return line, len([]rune(plain)), true
+	}
 	plain := stripGotuiMarkup(t.resultLines[line])
 	col = RuneIndexAtVisualCol(plain, relX)
 	return line, col, true

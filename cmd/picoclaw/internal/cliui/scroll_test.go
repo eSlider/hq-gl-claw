@@ -40,3 +40,46 @@ func TestScrollOffset_Page(t *testing.T) {
 		t.Fatalf("page up got %d", off)
 	}
 }
+
+func TestScrollbarThumbRange_HiddenWhenFits(t *testing.T) {
+	_, _, ok := ScrollbarThumbRange(5, 0, 10)
+	if ok {
+		t.Fatal("expected no scrollbar when content fits")
+	}
+}
+
+func TestScrollbarThumbRange_MovesWithOffset(t *testing.T) {
+	s0, e0, ok := ScrollbarThumbRange(100, 0, 10)
+	if !ok || s0 != 0 {
+		t.Fatalf("top thumb: %d-%d ok=%v", s0, e0, ok)
+	}
+	s1, e1, ok := ScrollbarThumbRange(100, 90, 10)
+	if !ok || e1 != 10 {
+		t.Fatalf("bottom thumb: %d-%d ok=%v", s1, e1, ok)
+	}
+	if s1 <= s0 {
+		t.Fatalf("thumb should move down: top=%d bottom=%d", s0, s1)
+	}
+}
+
+func TestApplyScrollbar_PaintsThumb(t *testing.T) {
+	window := []string{"a", "b", "c", "d"}
+	got := ApplyScrollbar(window, 20, 0, 4, 10)
+	if len(got) != 4 {
+		t.Fatalf("len=%d", len(got))
+	}
+	if !strings.Contains(got[0], glyphScrollThumb) {
+		t.Fatalf("expected thumb on first rows: %q", got[0])
+	}
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, glyphScrollTrack) {
+		t.Fatalf("expected track: %q", joined)
+	}
+}
+
+func TestFitLineWidth_Pads(t *testing.T) {
+	got := FitLineWidth("hi", 5)
+	if got != "hi   " {
+		t.Fatalf("got %q", got)
+	}
+}

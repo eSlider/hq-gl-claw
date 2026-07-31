@@ -17,20 +17,21 @@ and for ↓ response blocks in the session transcript (↑ requests stay plain);
 streaming stays plain text.
 
 ```
-┌────────────────────────────────────┬──────────────────┐
-│ result (scrollable)                │ sessions tree    │
-│ …                                  │ ▼ ● last ask…    │
-│                                    │     ↑ request    │
-│                                    │     ↓ response   │
-├────────────────────────────────────┴──────────────────┤
-│ input (TextArea, UTF-8 / Cyrillic)                    │
-├────────────────────────────────────┬──────────────────┤
-│ ✓ ↑in ↓out · tps · Σ · focus       │ 🦞 thinking…     │
-└────────────────────────────────────┴──────────────────┘
+┌───────────────────────────────────┬──────────────────┐
+│ result (scrollable)            █ │ sessions tree    │
+│ …                              │ │ ▼ ● last ask…    │
+│                                │ │     ↑ request    │
+│                                │ │     ↓ response   │
+├───────────────────────────────────┴──────────────────┤
+│ input (TextArea, UTF-8 / Cyrillic)                   │
+├───────────────────────────────────┬──────────────────┤
+│ ✓ ↑in ↓out · tps · Σ · focus      │ ◐ thinking…      │
+└───────────────────────────────────┴──────────────────┘
 ```
 
 Bottom row: **status** (left, turn/session metrics) shares the corner with **progress**
-(right — emoji thinking / streaming tps / done).
+(right — ◐ spinner / streaming tps / done). The result pane shows a `│`/`█`
+scrollbar on the right edge when content overflows the viewport.
 
 ### Sessions tree
 

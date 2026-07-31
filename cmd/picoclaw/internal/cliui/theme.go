@@ -20,6 +20,8 @@ const (
 	glyphRequest       = "↑" // user request
 	glyphResponse      = "↓" // assistant response
 	glyphCollapsed     = "▶" // node has hidden children
+	glyphScrollTrack   = "│" // result pane scrollbar track
+	glyphScrollThumb   = "█" // result pane scrollbar thumb
 
 	connectorMid  = "├" // sibling with more below
 	connectorLast = "└" // last sibling
