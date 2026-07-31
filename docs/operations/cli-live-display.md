@@ -40,10 +40,10 @@ content overflows the viewport.
 
 Rows are a **flat list** (no tree connectors), colored by kind:
 
-- **session** — white on navy (`●` / `○`)
-- **↑ request** — black on light green
-- **↓ response** — white on indigo
-- **cursor** — black on yellow
+- **session** — `#e8eef8` on `#005f87` (`●` / `○`, xterm-256)
+- **↑ request** — `#e8ffe8` on `#005f00`
+- **↓ response** — `#f5e8ff` on `#5f0087`
+- **cursor** — `#1c1c1c` on `#ffd700`
 
 Collapse with `h` / Left still hides children (`▶` on the session row).
 

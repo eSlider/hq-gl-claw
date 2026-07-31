@@ -103,7 +103,7 @@ func NewAgentTUI(prompt string) *AgentTUI {
 	sessions.Title = "sessions"
 	sessions.Border = true
 	sessions.BorderRounded = true
-	sessions.SelectedStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
+	sessions.SelectedStyle = ui.NewStyle(listSelectFg, listSelectBg)
 
 	input := widgets.NewTextArea()
 	input.Title = "↑in ↓out · elapsed · tps · waiting for first turn"

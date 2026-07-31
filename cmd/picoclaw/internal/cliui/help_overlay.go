@@ -28,8 +28,8 @@ Sessions list
   n               new session
   hover ↑↓        thin-box highlight + scroll to turn
 
-List colors
-  navy session · lightgreen ↑ · indigo ↓ · yellow cursor
+List colors (256-color hex bg)
+  session #005f87 · ↑ #005f00 · ↓ #5f0087 · cursor #ffd700
 
 Tree rules
   ● session → ↑ request → ↓ response → ↑ …

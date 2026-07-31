@@ -144,15 +144,15 @@ func TestFlattenConvTree_NoDuplicateKindGlyphs(t *testing.T) {
 
 func TestStyleSessionRow_VisibleContrast(t *testing.T) {
 	plain := StyleSessionRow("● hello", TreeRowSession, false, 12)
-	if !strings.Contains(plain, "bg:navy") || !strings.Contains(plain, "fg:white") {
+	if !strings.Contains(plain, "bg:#005f87") || !strings.Contains(plain, "fg:#e8eef8") {
 		t.Fatalf("session style: %q", plain)
 	}
 	req := StyleSessionRow("↑ ask", TreeRowRequest, false, 0)
-	if !strings.Contains(req, "bg:lightgreen") || !strings.Contains(req, "fg:black") {
+	if !strings.Contains(req, "bg:#005f00") || !strings.Contains(req, "fg:#e8ffe8") {
 		t.Fatalf("request style: %q", req)
 	}
 	sel := StyleSessionRow("↓ ans", TreeRowResponse, true, 0)
-	if !strings.Contains(sel, "bg:yellow") || !strings.Contains(sel, "fg:black") {
+	if !strings.Contains(sel, "bg:#ffd700") || !strings.Contains(sel, "fg:#1c1c1c") {
 		t.Fatalf("selected style: %q", sel)
 	}
 }
