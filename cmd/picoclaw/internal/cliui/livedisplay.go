@@ -302,7 +302,7 @@ func (d *LiveDisplay) Finish(content string) {
 		d.last = content
 		d.mu.Unlock()
 		out := content
-		if glamourEnabled() {
+		if markdownEnabled() {
 			if styled := RenderMarkdown(content); styled != "" {
 				out = styled
 			}

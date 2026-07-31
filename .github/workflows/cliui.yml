@@ -33,10 +33,13 @@ jobs:
           cache: true
 
       - name: Vet
-        run: go vet ./cmd/picoclaw/internal/cliui/ ./cmd/picoclaw/internal/agent/
+        run: go vet ./cmd/picoclaw/internal/cliui/... ./cmd/picoclaw/internal/agent/
 
       - name: Test
-        run: go test -race -count=1 ./cmd/picoclaw/internal/cliui/ ./cmd/picoclaw/internal/agent/
+        run: go test -race -count=1 ./cmd/picoclaw/internal/cliui/... ./cmd/picoclaw/internal/agent/
 
-      - name: Bench smoke (glamour A/B)
-        run: go test ./cmd/picoclaw/internal/cliui/ -bench='BenchmarkRenderMarkdown|BenchmarkPrintAgentResponse' -benchmem -count=1
+      - name: Bench smoke (mdansi A/B)
+        run: go test ./cmd/picoclaw/internal/cliui/ ./cmd/picoclaw/internal/cliui/mdansi/ -bench='BenchmarkRenderMarkdown|BenchmarkPrintAgentResponse' -benchmem -count=1
+
+      - name: Test mdansi
+        run: go test -race -count=1 ./cmd/picoclaw/internal/cliui/mdansi/

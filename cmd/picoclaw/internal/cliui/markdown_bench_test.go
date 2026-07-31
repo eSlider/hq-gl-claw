@@ -11,7 +11,7 @@ const benchMarkdown = `# Hello PicoClaw
 
 Here is a **summary** of the change:
 
-1. Added glamour rendering
+1. Added mdansi rendering
 2. Kept plain fallback
 3. Measured CPU/RAM
 
@@ -30,7 +30,7 @@ Visit https://picoclaw.io for docs.
 `
 
 func BenchmarkRenderMarkdown_Plain(b *testing.B) {
-	b.Setenv(envGlamourDisable, "0")
+	b.Setenv(envMarkdownDisable, "0")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -38,9 +38,8 @@ func BenchmarkRenderMarkdown_Plain(b *testing.B) {
 	}
 }
 
-func BenchmarkRenderMarkdown_Glamour(b *testing.B) {
-	b.Setenv(envGlamourDisable, "1")
-	// Warm renderer outside timed loop.
+func BenchmarkRenderMarkdown_Mdansi(b *testing.B) {
+	b.Setenv(envMarkdownDisable, "1")
 	_ = RenderMarkdown(benchMarkdown)
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -50,7 +49,7 @@ func BenchmarkRenderMarkdown_Glamour(b *testing.B) {
 }
 
 func BenchmarkPrintAgentResponse_Plain(b *testing.B) {
-	b.Setenv(envGlamourDisable, "0")
+	b.Setenv(envMarkdownDisable, "0")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -58,8 +57,8 @@ func BenchmarkPrintAgentResponse_Plain(b *testing.B) {
 	}
 }
 
-func BenchmarkPrintAgentResponse_Glamour(b *testing.B) {
-	b.Setenv(envGlamourDisable, "1")
+func BenchmarkPrintAgentResponse_Mdansi(b *testing.B) {
+	b.Setenv(envMarkdownDisable, "1")
 	_ = RenderMarkdown(benchMarkdown)
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -68,7 +67,6 @@ func BenchmarkPrintAgentResponse_Glamour(b *testing.B) {
 	}
 }
 
-// Ensure sample stays representative if edited.
 func TestBenchMarkdownNonEmpty(t *testing.T) {
 	if len(benchMarkdown) < 100 {
 		t.Fatalf("bench markdown too small: %d", len(benchMarkdown))

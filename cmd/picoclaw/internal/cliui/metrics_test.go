@@ -74,22 +74,16 @@ func TestSessionMetrics_AddTurn(t *testing.T) {
 	}
 }
 
-func TestPaneLayoutIncludesStatusBar(t *testing.T) {
-	p := NewPaneSession(80, 24)
-	stats, content, input, status := p.Slots4()
-	if stats != 1 || input != 1 || status != 1 {
-		t.Fatalf("chrome stats=%d input=%d status=%d", stats, input, status)
+func TestChromeIncludesStatusBar(t *testing.T) {
+	c := ComputeChrome(80, 24, 1)
+	if c.Stats.H != 1 || c.Status.H != 1 || c.Input.H != 1 {
+		t.Fatalf("chrome stats=%d input=%d status=%d", c.Stats.H, c.Input.H, c.Status.H)
 	}
-	if content != 21 {
-		t.Fatalf("content=%d want 21", content)
+	if c.Result.H != 21 {
+		t.Fatalf("result H=%d want 21", c.Result.H)
 	}
-	p.SetStatusBar("✓ ↑10 ↓5 · 1.0s · 5.0 tps")
-	out := p.Render()
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != 24 {
-		t.Fatalf("lines=%d want 24", len(lines))
-	}
-	if !strings.Contains(lines[len(lines)-1], "↑10") {
-		t.Fatalf("bottom status missing metrics: %q", lines[len(lines)-1])
+	bar := FormatStatusBar(TurnMetrics{PromptTokens: 10, CompletionTokens: 5, PromptExact: true, CompletionExact: true, Elapsed: time.Second}, SessionMetrics{}, "input")
+	if !strings.Contains(bar, "↑10") {
+		t.Fatalf("status missing metrics: %q", bar)
 	}
 }
