@@ -277,7 +277,14 @@ func FlattenConvTree(root *ConvNode, currentKey string, titleWidth int, expanded
 }
 
 // formatNodeRow builds one list row; truncates to titleWidth runes.
-func formatNodeRow(n *ConvNode, prefix string, depth int, isLast, exp, hasKids bool, titleWidth int, currentKey string) string {
+func formatNodeRow(
+	n *ConvNode,
+	prefix string,
+	depth int,
+	isLast, exp, hasKids bool,
+	titleWidth int,
+	currentKey string,
+) string {
 	var b strings.Builder
 	b.WriteString(prefix)
 	if depth > 0 {
