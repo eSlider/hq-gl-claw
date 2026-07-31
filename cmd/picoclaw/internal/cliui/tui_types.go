@@ -14,4 +14,9 @@ const (
 type PaneEvent struct {
 	Action  KeyAction
 	Payload string
+
+	// Submit fields (KeyActionSubmit):
+	SessionKey    string        // session to run against
+	NodeID        string        // new request node id (for attaching response)
+	HistoryBefore []ChatMessage // path messages before the new request (fork/branch)
 }

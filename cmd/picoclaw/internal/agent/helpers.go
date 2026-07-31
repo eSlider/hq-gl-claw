@@ -203,19 +203,24 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			ui.ShowSessionHistory(nil)
 			return nil
 		case cliui.KeyActionSubmit:
+			if ev.SessionKey != "" {
+				sessionKey = ev.SessionKey
+			}
 			streamer := cliui.NewPaneStreamer(ui)
 			streamer.Start(ev.Payload)
 			msgBus.SetStreamDelegate(cliui.NewPaneStreamDelegate(streamer))
 			ctx := context.Background()
+			// Install branch path so ProcessDirect continues from the selected parent.
+			lister.SetHistory(sessionKey, ev.HistoryBefore)
 			response, err := agentLoop.ProcessDirect(ctx, ev.Payload, sessionKey)
 			if err != nil {
 				streamer.Cancel(ctx)
 				return err
 			}
 			streamer.Finish(response)
+			ui.CompleteRequest(ev.NodeID, response)
 			_ = cliui.SaveLastCLISession(home, sessionKey)
 			ui.SyncSessions(lister, sessionKey)
-			ui.ShowSessionHistory(lister.GetHistory(sessionKey))
 			return nil
 		default:
 			return nil
@@ -255,6 +260,17 @@ func (l *agentSessionLister) GetHistory(key string) []cliui.ChatMessage {
 		out = append(out, cliui.ChatMessage{Role: m.Role, Content: m.Content})
 	}
 	return out
+}
+
+func (l *agentSessionLister) SetHistory(key string, msgs []cliui.ChatMessage) {
+	if l == nil || l.store == nil {
+		return
+	}
+	hist := make([]providers.Message, 0, len(msgs))
+	for _, m := range msgs {
+		hist = append(hist, providers.Message{Role: m.Role, Content: m.Content})
+	}
+	l.store.SetHistory(key, hist)
 }
 
 func simpleInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, sessionKey string) {

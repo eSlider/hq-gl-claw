@@ -46,9 +46,13 @@ type AgentTUI struct {
 	treeRows      []SessionTreeRow
 	treeSel       int
 	treeTop       int
-	treeHover     int // row under mouse; -1 if none
-	treeExpanded  map[string]bool
+	treeHover     int             // row under mouse; -1 if none
+	treeExpanded  map[string]bool // node id or session key → expanded
 	retainKeys    map[string]struct{}
+	forest        map[string]*ConvNode
+	idGen         idGen
+	selectedID    string // currently selected tree node
+	pendingReqID  string // in-flight request node awaiting response
 	sessionLister SessionLister
 	currentKey    string
 
@@ -119,6 +123,7 @@ func NewAgentTUI(prompt string) *AgentTUI {
 		treeHover:    -1,
 		treeExpanded: map[string]bool{},
 		retainKeys:   map[string]struct{}{},
+		forest:       map[string]*ConvNode{},
 		redrawCh:     make(chan struct{}, 1),
 		eventCh:      make(chan PaneEvent, 8),
 	}
@@ -323,17 +328,97 @@ func (t *AgentTUI) rebuildTreeLocked() {
 	if t.sessions.Inner.Dx() > 4 {
 		tw = t.sessions.Inner.Dx() - 4
 	}
-	t.treeRows = BuildSessionTreeRows(t.sessionLister, t.currentKey, tw, t.treeExpanded, t.retainKeyListLocked()...)
-	// Prefer selecting the current session row after rebuild.
+	var rows []SessionTreeRow
+	rows, t.forest = BuildSessionTreeRows(
+		t.sessionLister, t.currentKey, tw, t.forest, t.treeExpanded, &t.idGen, t.retainKeyListLocked()...,
+	)
+	t.treeRows = rows
+	// Prefer keeping selected node; else current session row.
 	sel := 0
+	found := false
 	for i, r := range t.treeRows {
-		if r.Kind == TreeRowSession && r.SessionKey == t.currentKey {
+		if t.selectedID != "" && r.NodeID == t.selectedID {
 			sel = i
+			found = true
 			break
+		}
+	}
+	if !found {
+		for i, r := range t.treeRows {
+			if r.Kind == TreeRowSession && r.SessionKey == t.currentKey {
+				sel = i
+				t.selectedID = r.NodeID
+				break
+			}
 		}
 	}
 	t.treeSel = sel
 	t.refreshSessionsViewLocked()
+}
+
+// CompleteRequest attaches the assistant response under the pending request node.
+func (t *AgentTUI) CompleteRequest(requestNodeID, response string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	id := requestNodeID
+	if id == "" {
+		id = t.pendingReqID
+	}
+	t.pendingReqID = ""
+	root := t.forest[t.currentKey]
+	if root == nil {
+		return
+	}
+	req := FindNode(root, id)
+	if req == nil {
+		return
+	}
+	resp := AttachResponse(req, response, &t.idGen)
+	if resp != nil {
+		t.treeExpanded[req.ID] = true
+		t.treeExpanded[resp.ID] = true
+		t.selectedID = resp.ID
+	}
+	// Refresh session title from last request.
+	root.Content = sessionTitleFromTree(root)
+	t.rebuildTreeLocked()
+	t.setTranscriptLocked(PathMessages(resp))
+	t.requestRedraw()
+}
+
+func (t *AgentTUI) selectedNodeLocked() *ConvNode {
+	if t.selectedID == "" {
+		return t.forest[t.currentKey]
+	}
+	root := t.forest[t.currentKey]
+	if root == nil {
+		return nil
+	}
+	if n := FindNode(root, t.selectedID); n != nil {
+		return n
+	}
+	// Selection may be in another session's tree.
+	for _, r := range t.forest {
+		if n := FindNode(r, t.selectedID); n != nil {
+			return n
+		}
+	}
+	return root
+}
+
+func (t *AgentTUI) autofillFromRequestLocked(content string) {
+	t.input.Text = content
+	t.input.Cursor.X = 0
+	t.input.Cursor.Y = 0
+	// Place cursor at end.
+	for _, r := range content {
+		if r == '\n' {
+			t.input.Cursor.Y++
+			t.input.Cursor.X = 0
+		} else {
+			t.input.Cursor.X++
+		}
+	}
 }
 
 func (t *AgentTUI) refreshSessionsViewLocked() {
@@ -583,6 +668,7 @@ func (t *AgentTUI) handleMouseHover(e ui.Event) {
 	}
 	t.treeHover = idx
 	row := t.treeRows[idx]
+	t.selectedID = row.NodeID
 	switch row.Kind {
 	case TreeRowRequest, TreeRowResponse:
 		t.applyHoverHighlightLocked(row.Kind, row.Content)
@@ -626,14 +712,17 @@ func (t *AgentTUI) handleMouseWheel(e ui.Event) {
 func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 	switch row.Kind {
 	case TreeRowSession:
-		// Click/Enter always displays the session (expand + switch). Collapse via h only.
 		t.mu.Lock()
 		t.treeExpanded[row.SessionKey] = true
+		if row.NodeID != "" {
+			t.treeExpanded[row.NodeID] = true
+		}
+		t.selectedID = row.NodeID
 		same := row.SessionKey == t.currentKey
 		if same {
 			t.rebuildTreeLocked()
-			if t.sessionLister != nil {
-				t.setTranscriptLocked(t.sessionLister.GetHistory(row.SessionKey))
+			if root := t.forest[row.SessionKey]; root != nil {
+				t.setTranscriptLocked(collectSessionTranscript(root))
 			}
 			t.mu.Unlock()
 			t.requestRedraw()
@@ -641,13 +730,42 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 		}
 		t.mu.Unlock()
 		t.emit(PaneEvent{Action: KeyActionSwitchSession, Payload: row.SessionKey})
-	case TreeRowRequest, TreeRowResponse:
-		// Preview in place — do not replace the transcript with a single message.
+	case TreeRowRequest:
 		t.mu.Lock()
+		t.selectedID = row.NodeID
+		t.autofillFromRequestLocked(row.Content)
+		t.applyHoverHighlightLocked(row.Kind, row.Content)
+		t.focus = FocusInput
+		t.highlightFocusLocked()
+		t.mu.Unlock()
+		t.requestRedraw()
+	case TreeRowResponse:
+		t.mu.Lock()
+		t.selectedID = row.NodeID
+		if row.NodeID != "" {
+			t.treeExpanded[row.NodeID] = true
+		}
 		t.applyHoverHighlightLocked(row.Kind, row.Content)
 		t.mu.Unlock()
 		t.requestRedraw()
 	}
+}
+
+func collectSessionTranscript(root *ConvNode) []ChatMessage {
+	if root == nil {
+		return nil
+	}
+	// Prefer full depth-first path messages of the deepest tip.
+	var tip *ConvNode
+	var walk func(*ConvNode)
+	walk = func(n *ConvNode) {
+		tip = n
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(root)
+	return PathMessages(tip)
 }
 
 func (t *AgentTUI) handleResultKey(e ui.Event) {
@@ -721,9 +839,14 @@ func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 		return true
 	case "h", "<Left>":
 		idx := t.treeSel
-		if idx >= 0 && idx < n && t.treeRows[idx].Kind == TreeRowSession {
-			key := t.treeRows[idx].SessionKey
-			t.treeExpanded[key] = false
+		if idx >= 0 && idx < n {
+			row := t.treeRows[idx]
+			if row.NodeID != "" {
+				t.treeExpanded[row.NodeID] = false
+			}
+			if row.Kind == TreeRowSession {
+				t.treeExpanded[row.SessionKey] = false
+			}
 			t.rebuildTreeLocked()
 			t.clearHoverHighlightLocked()
 		}
@@ -744,8 +867,12 @@ func (t *AgentTUI) previewTreeSelectionLocked() {
 		return
 	}
 	row := t.treeRows[t.treeSel]
+	t.selectedID = row.NodeID
 	switch row.Kind {
-	case TreeRowRequest, TreeRowResponse:
+	case TreeRowRequest:
+		t.autofillFromRequestLocked(row.Content)
+		t.applyHoverHighlightLocked(row.Kind, row.Content)
+	case TreeRowResponse:
 		t.applyHoverHighlightLocked(row.Kind, row.Content)
 	default:
 		t.clearHoverHighlightLocked()
@@ -766,11 +893,14 @@ func (t *AgentTUI) handleInputKey(e ui.Event, busy bool, _ func(PaneEvent) error
 			t.quit.Store(true)
 			return true
 		}
+		t.mu.Lock()
+		ev := t.buildSubmitEventLocked(text)
 		t.input.Text = ""
 		t.input.Cursor.X = 0
 		t.input.Cursor.Y = 0
+		t.mu.Unlock()
 		t.busy.Store(true)
-		t.emit(PaneEvent{Action: KeyActionSubmit, Payload: text})
+		t.emit(ev)
 		return false
 	case "<C-j>":
 		t.input.InsertNewline()
@@ -798,6 +928,43 @@ func (t *AgentTUI) handleInputKey(e ui.Event, busy bool, _ func(PaneEvent) error
 			t.input.InsertRune(r)
 		}
 		return false
+	}
+}
+
+func (t *AgentTUI) buildSubmitEventLocked(text string) PaneEvent {
+	sel := t.selectedNodeLocked()
+	// Ensure we have a session root.
+	if t.forest[t.currentKey] == nil {
+		t.forest[t.currentKey] = BuildConvTreeFromHistory(t.currentKey, "(empty)", nil, &t.idGen)
+	}
+	if sel == nil || sel.Session != t.currentKey {
+		sel = t.forest[t.currentKey]
+		t.selectedID = sel.ID
+	}
+	parent := SubmitParent(sel)
+	if parent == nil {
+		parent = t.forest[t.currentKey]
+	}
+	// Expand ancestors so the new leaf is visible.
+	for n := parent; n != nil; n = n.Parent {
+		t.treeExpanded[n.ID] = true
+		if n.Kind == TreeRowSession {
+			t.treeExpanded[n.Session] = true
+		}
+	}
+	histBefore := PathMessagesBefore(parent)
+	req := AttachRequest(parent, text, &t.idGen)
+	t.pendingReqID = req.ID
+	t.selectedID = req.ID
+	t.treeExpanded[parent.ID] = true
+	t.rebuildTreeLocked()
+	t.requestRedraw()
+	return PaneEvent{
+		Action:        KeyActionSubmit,
+		Payload:       text,
+		SessionKey:    t.currentKey,
+		NodeID:        req.ID,
+		HistoryBefore: histBefore,
 	}
 }
 

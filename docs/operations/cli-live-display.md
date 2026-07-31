@@ -33,13 +33,24 @@ Bottom row: **status** (left, turn/session metrics) shares the corner with **pro
 
 ### Sessions tree
 
-- **Level 1 — session** (`▼/▶ ● title` = last user request)
-- **Level 2 — turn** (`↑` request, `↓` response)
-- Current session is expanded by default; click/Enter a session **displays** it
-  (always expands — collapse only with `h` / Left)
-- Hover (mouse move) or j/k over ↑/↓ **scrolls** the result transcript to that
-  block and draws a **thin** (non-rounded) highlight box — does not replace content
-- Ctrl+N starts a new session without removing prior sessions from the tree
+Root leaves are **sessions**. Nested structure:
+
+```
+▼ ● session title
+└─ ▼ ↑ request
+   └─ ▼ ↓ response
+      ├─ ↑ follow-up A
+      └─ ↑ follow-up B   ← branching under a response
+```
+
+Rules:
+
+1. **Session selected + Enter in input** → new request leaf under that session
+2. **Request selected** → input autofilled; send creates a **sibling** request under the same parent (edit & resend / fork)
+3. **Response selected + send** → new request nests **under that response** (many requests per response)
+4. Collapse any node with `h` / Left; click/Enter on a session always displays it (expands)
+
+Hover / j·k over ↑/↓ scrolls the result transcript with a thin highlight box.
 
 ### Launch / session restore
 

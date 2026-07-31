@@ -34,17 +34,21 @@ func TestBuildSessionTreeRows_ExpandCurrent(t *testing.T) {
 			},
 		},
 	}
-	rows := BuildSessionTreeRows(src, "cli:a", 40, nil)
+	rows, forest := BuildSessionTreeRows(src, "cli:a", 40, nil, nil, nil)
+	if forest["cli:a"] == nil || forest["cli:b"] == nil {
+		t.Fatal("forest missing roots")
+	}
 	var sessions, reqs, resps int
+	var maxDepth int
 	for _, r := range rows {
+		if r.Depth > maxDepth {
+			maxDepth = r.Depth
+		}
 		switch r.Kind {
 		case TreeRowSession:
 			sessions++
 		case TreeRowRequest:
 			reqs++
-			if r.SessionKey != "cli:a" {
-				t.Fatalf("request under wrong session: %q", r.SessionKey)
-			}
 		case TreeRowResponse:
 			resps++
 		}
@@ -52,8 +56,12 @@ func TestBuildSessionTreeRows_ExpandCurrent(t *testing.T) {
 	if sessions != 2 {
 		t.Fatalf("sessions=%d", sessions)
 	}
-	if reqs != 1 || resps != 1 {
-		t.Fatalf("reqs=%d resps=%d (only current expanded)", reqs, resps)
+	// cli:a expanded (nested req+resp); cli:b collapsed at session only when default
+	if reqs < 1 || resps < 1 {
+		t.Fatalf("reqs=%d resps=%d", reqs, resps)
+	}
+	if maxDepth < 2 {
+		t.Fatalf("expected nested depth>=2, got %d", maxDepth)
 	}
 }
 
@@ -67,11 +75,14 @@ func TestBuildSessionTreeRows_Collapse(t *testing.T) {
 			},
 		},
 	}
-	rows := BuildSessionTreeRows(src, "cli:a", 40, map[string]bool{"cli:a": false})
-	for _, r := range rows {
-		if r.Kind != TreeRowSession {
-			t.Fatalf("expected collapsed, got %+v", r)
-		}
+	rows, forest := BuildSessionTreeRows(src, "cli:a", 40, nil, map[string]bool{"cli:a": false}, nil)
+	root := forest["cli:a"]
+	if root == nil {
+		t.Fatal("no root")
+	}
+	// Only session row when collapsed via session key.
+	if len(rows) != 1 || rows[0].Kind != TreeRowSession {
+		t.Fatalf("expected collapsed session only, got %+v", rows)
 	}
 }
 

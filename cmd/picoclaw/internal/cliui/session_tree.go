@@ -1,7 +1,6 @@
 package cliui
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -19,9 +18,10 @@ type SessionTreeRow struct {
 	Kind       TreeRowKind
 	SessionKey string
 	Label      string
-	Content    string // full text for request/response; empty for session
-	Expanded   bool   // session nodes only
+	Content    string // full text for request/response; empty for session title source
+	Expanded   bool
 	Depth      int
+	NodeID     string // ConvNode.ID for selection / submit anchoring
 }
 
 // TurnPair is one user request + optional assistant response.
@@ -61,74 +61,49 @@ func PairTurns(msgs []ChatMessage) []TurnPair {
 	return out
 }
 
-// BuildSessionTreeRows builds a session → request/response tree.
-// expanded[key]==true shows children; current session defaults expanded when map is nil.
-// retainKeys are always kept in the tree (see BuildSessionItems).
+// BuildSessionTreeRows builds nested session trees for all listed sessions.
+// expanded is keyed by ConvNode.ID (and session key for backward-compatible
+// session collapse). retainKeys are always kept (see BuildSessionItems).
 func BuildSessionTreeRows(
 	src SessionLister,
 	currentKey string,
 	titleWidth int,
+	forest map[string]*ConvNode,
 	expanded map[string]bool,
+	gen *idGen,
 	retainKeys ...string,
-) []SessionTreeRow {
+) ([]SessionTreeRow, map[string]*ConvNode) {
 	if titleWidth < 8 {
 		titleWidth = 8
 	}
+	if forest == nil {
+		forest = map[string]*ConvNode{}
+	}
+	if gen == nil {
+		gen = &idGen{}
+	}
 	items := BuildSessionItems(src, currentKey, titleWidth, retainKeys...)
-	out := make([]SessionTreeRow, 0, len(items)*3)
+	out := make([]SessionTreeRow, 0, len(items)*4)
 	for _, it := range items {
-		exp := it.Key == currentKey
+		root, ok := forest[it.Key]
+		if !ok || root == nil {
+			var msgs []ChatMessage
+			if src != nil {
+				msgs = src.GetHistory(it.Key)
+			}
+			root = BuildConvTreeFromHistory(it.Key, it.Title, msgs, gen)
+			forest[it.Key] = root
+		} else {
+			// Refresh session title from item.
+			root.Content = it.Title
+		}
+		// Honor session-key collapse in expanded map.
 		if expanded != nil {
 			if v, ok := expanded[it.Key]; ok {
-				exp = v
+				expanded[root.ID] = v
 			}
 		}
-		mark := " "
-		if it.Key == currentKey {
-			mark = "●"
-		}
-		twist := "▶"
-		if exp {
-			twist = "▼"
-		}
-		out = append(out, SessionTreeRow{
-			Kind:       TreeRowSession,
-			SessionKey: it.Key,
-			Label:      fmt.Sprintf("%s %s %s", twist, mark, it.Title),
-			Expanded:   exp,
-			Depth:      0,
-		})
-		if !exp || src == nil {
-			continue
-		}
-		turns := PairTurns(src.GetHistory(it.Key))
-		// Show newest turns last (chronological).
-		for _, turn := range turns {
-			if turn.Request != "" {
-				out = append(out, SessionTreeRow{
-					Kind:       TreeRowRequest,
-					SessionKey: it.Key,
-					Label:      "↑ " + TruncateTitle(turn.Request, titleWidth-2),
-					Content:    turn.Request,
-					Depth:      1,
-				})
-			}
-			if turn.Response != "" {
-				out = append(out, SessionTreeRow{
-					Kind:       TreeRowResponse,
-					SessionKey: it.Key,
-					Label:      "↓ " + TruncateTitle(turn.Response, titleWidth-2),
-					Content:    turn.Response,
-					Depth:      1,
-				})
-			}
-		}
+		out = append(out, FlattenConvTree(root, currentKey, titleWidth, expanded)...)
 	}
-	return out
-}
-
-// FormatTreeRowLabel indents a tree row for list display.
-func FormatTreeRowLabel(row SessionTreeRow) string {
-	indent := strings.Repeat("  ", row.Depth)
-	return indent + row.Label
+	return out, forest
 }
