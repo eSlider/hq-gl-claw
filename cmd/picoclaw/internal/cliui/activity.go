@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// ActivityPhase is a long-running agent background phase shown in the status pane.
+// ActivityPhase is a long-running agent background phase shown in the input-title status.
 type ActivityPhase string
 
 const (

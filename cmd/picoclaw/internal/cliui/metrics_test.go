@@ -125,14 +125,11 @@ func TestSessionMetrics_AddTurn(t *testing.T) {
 
 func TestChromeIncludesStatusBar(t *testing.T) {
 	c := ComputeChrome(80, 24, 1)
-	if c.Status.H != 3 || c.Input.H != 1 {
-		t.Fatalf("chrome input=%d status=%d", c.Input.H, c.Status.H)
+	if c.Input.H != 1 || c.Input.W != 80 {
+		t.Fatalf("chrome input=%+v", c.Input)
 	}
-	if c.Status.W != 80 {
-		t.Fatalf("status W=%d want full width 80", c.Status.W)
-	}
-	if c.Result.H != 20 { // 24 - 1 - 3
-		t.Fatalf("result H=%d want 20", c.Result.H)
+	if c.Result.H != 23 { // 24 - 1 (status lives in input title)
+		t.Fatalf("result H=%d want 23", c.Result.H)
 	}
 	bar := FormatStatusBar(
 		TurnMetrics{

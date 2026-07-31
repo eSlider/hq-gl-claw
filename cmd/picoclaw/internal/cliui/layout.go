@@ -6,20 +6,18 @@ type Rect struct {
 }
 
 // Chrome holds layout rectangles for the interactive agent TUI.
+// Top: result | sessions. Bottom: one full-width input pane whose
+// title carries status metrics/activity and right-aligned progress.
 type Chrome struct {
 	Result   Rect
 	Sessions Rect
 	Input    Rect
-	Status   Rect // full-width bottom bar: metrics/activity | progress
 }
 
 const (
 	sessionsMinW = 18
 	sessionsMaxW = 28
 	minResultH   = 3
-	// gotui Block.SetRect always insets Inner by 1 row/col; bordered
-	// widgets need outer H>=3 for one line of text (top+content+bottom).
-	statusH = 3
 )
 
 // ComputeChrome derives pane geometry from terminal size and input row count.
@@ -47,24 +45,21 @@ func ComputeChrome(width, height, inputRows int) Chrome {
 	resultW := width - sessW
 
 	// Prefer keeping inputRows; shrink result if needed, never below minResultH.
-	used := inputRows + statusH
-	resultH := height - used
+	resultH := height - inputRows
 	if resultH < minResultH {
-		inputRows = height - statusH - minResultH
+		inputRows = height - minResultH
 		if inputRows < 1 {
 			inputRows = 1
 		}
-		resultH = height - inputRows - statusH
+		resultH = height - inputRows
 		if resultH < minResultH {
 			resultH = minResultH
 		}
 	}
 
-	bottomY := resultH + inputRows
 	return Chrome{
 		Result:   Rect{X: 0, Y: 0, W: resultW, H: resultH},
 		Sessions: Rect{X: resultW, Y: 0, W: sessW, H: resultH},
 		Input:    Rect{X: 0, Y: resultH, W: width, H: inputRows},
-		Status:   Rect{X: 0, Y: bottomY, W: width, H: statusH},
 	}
 }

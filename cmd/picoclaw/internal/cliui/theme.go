@@ -35,5 +35,5 @@ const (
 	listStyleSelectBG   = "yellow"
 )
 
-// Key hints shown in the input pane title so controls are discoverable at a glance.
+// Key hints shown on the input pane bottom border (status uses the top title).
 const inputHint = "⏎ send · ^J newline · ^N new · F2 model · ^H help"

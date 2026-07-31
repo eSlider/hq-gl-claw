@@ -27,12 +27,11 @@ func PanesEnabled() bool {
 type AgentTUI struct {
 	prompt string
 
-	progressText string // right segment of bottom status bar (spinner / tps)
+	progressText string // right segment of input-title status (spinner / tps)
 
 	result   *widgets.Paragraph
 	sessions *widgets.List
 	input    *widgets.TextArea
-	status   *widgets.Paragraph // full-width: metrics/activity | progress
 	help     *widgets.Paragraph // Ctrl+H / F1 shortcut overlay
 
 	mu        sync.Mutex
@@ -107,14 +106,12 @@ func NewAgentTUI(prompt string) *AgentTUI {
 	sessions.SelectedStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
 
 	input := widgets.NewTextArea()
-	input.Title = inputHint
+	input.Title = "↑in ↓out · elapsed · tps · waiting for first turn"
+	input.TitleBottom = inputHint
 	input.Border = true
 	input.BorderRounded = true
 	input.ShowCursor = true
 	input.Text = ""
-
-	status := newParagraph("")
-	status.Text = "↑in ↓out · elapsed · tps · waiting for first turn"
 
 	help := newParagraph("help · Ctrl+H / Esc close")
 	help.Text = HelpShortcuts
@@ -132,7 +129,6 @@ func NewAgentTUI(prompt string) *AgentTUI {
 		result:       result,
 		sessions:     sessions,
 		input:        input,
-		status:       status,
 		help:         help,
 		focus:        FocusInput,
 		width:        80,
@@ -164,7 +160,6 @@ func (t *AgentTUI) applyChromeLocked() {
 	setWidgetRect(t.result, c.Result)
 	setWidgetRect(t.sessions, c.Sessions)
 	setWidgetRect(t.input, c.Input)
-	setWidgetRect(t.status, c.Status)
 	if t.help != nil {
 		hw, hh := HelpOverlaySize(t.width, t.height)
 		setWidgetRect(t.help, CenterRect(t.width, t.height, hw, hh))
@@ -187,7 +182,6 @@ func (t *AgentTUI) highlightFocusLocked() {
 	t.result.BorderStyle.Fg = idle.Fg
 	t.sessions.BorderStyle.Fg = idle.Fg
 	t.input.BorderStyle.Fg = idle.Fg
-	t.status.BorderStyle.Fg = idle.Fg
 	switch t.focus {
 	case FocusResult:
 		t.result.BorderStyle.Fg = active.Fg
@@ -200,13 +194,17 @@ func (t *AgentTUI) highlightFocusLocked() {
 	t.refreshStatusLocked()
 }
 
-func (t *AgentTUI) statusInnerWidthLocked() int {
-	dx := t.status.Inner.Dx()
-	if dx < 2 {
+func (t *AgentTUI) inputTitleWidthLocked() int {
+	dx := t.input.Dx()
+	if dx < 4 {
 		c := ComputeChrome(t.width, t.height, t.inputRows)
-		return c.Status.W - 2
+		dx = c.Input.W
 	}
-	return dx
+	w := dx - 4 // leave room for border corners around the title
+	if w < 8 {
+		return 8
+	}
+	return w
 }
 
 func (t *AgentTUI) refreshStatusLocked() {
@@ -216,10 +214,11 @@ func (t *AgentTUI) refreshStatusLocked() {
 	left := FormatStatusBar(
 		t.last, t.session, t.focus.String(), FormatEndpoint(t.endpoint), activity,
 	)
-	t.status.Text = FormatCombinedStatusBar(left, t.progressText, t.statusInnerWidthLocked())
+	t.input.Title = FormatCombinedStatusBar(left, t.progressText, t.inputTitleWidthLocked())
+	t.input.TitleBottom = inputHint
 }
 
-// SetActivity publishes a long-running background phase into the status pane.
+// SetActivity publishes a long-running background phase into the input-title status.
 func (t *AgentTUI) SetActivity(phase ActivityPhase, detail string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -230,7 +229,7 @@ func (t *AgentTUI) SetActivity(phase ActivityPhase, detail string) {
 	t.requestRedraw()
 }
 
-// ClearActivity clears the status-pane background activity indicator.
+// ClearActivity clears the input-title background activity indicator.
 func (t *AgentTUI) ClearActivity() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -291,14 +290,14 @@ func (t *AgentTUI) EndToolActivity(name string) {
 	t.requestRedraw()
 }
 
-// ActivitySnapshot returns the current status-pane activity phase and detail.
+// ActivitySnapshot returns the current input-title activity phase and detail.
 func (t *AgentTUI) ActivitySnapshot() (ActivityPhase, string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.activityPhase, t.activityDetail
 }
 
-// TickActivity advances the status-pane spinner/elapsed while a phase is active.
+// TickActivity advances the input-title spinner/elapsed while a phase is active.
 func (t *AgentTUI) TickActivity() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -309,7 +308,7 @@ func (t *AgentTUI) TickActivity() {
 	t.refreshStatusLocked()
 }
 
-// SetEndpoint updates the model/API shown in the bottom status bar.
+// SetEndpoint updates the model/API shown in the input-title status.
 func (t *AgentTUI) SetEndpoint(ep EndpointInfo) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -743,9 +742,9 @@ func (t *AgentTUI) renderAll() {
 	t.mu.Unlock()
 	ui.Clear()
 	if showHelp {
-		ui.Render(t.result, t.sessions, t.input, t.status, t.help)
+		ui.Render(t.result, t.sessions, t.input, t.help)
 	} else {
-		ui.Render(t.result, t.sessions, t.input, t.status)
+		ui.Render(t.result, t.sessions, t.input)
 	}
 }
 
