@@ -31,6 +31,31 @@ func TestFormatSessionTranscript_Blocks(t *testing.T) {
 	}
 }
 
+func TestFormatSessionTranscript_RendersMarkdownResponses(t *testing.T) {
+	t.Setenv("PICOCLAW_MARKDOWN", "")
+	t.Setenv("PICOCLAW_GLAMOUR", "")
+	msgs := []ChatMessage{
+		{Role: "user", Content: "ask"},
+		{Role: "assistant", Content: "# Hello\n\nUse `code` and **bold**."},
+	}
+	text, blocks := FormatSessionTranscriptWidth(msgs, 80)
+	if strings.Contains(text, "# Hello") {
+		t.Fatalf("raw heading marker should be rendered away: %q", text)
+	}
+	if !strings.Contains(text, "Hello") {
+		t.Fatalf("missing heading text: %q", text)
+	}
+	if !strings.Contains(text, "[Hello](fg:cyan,mod:bold)") && !strings.Contains(text, "fg:cyan") {
+		t.Fatalf("expected gotui heading markup: %q", text)
+	}
+	if strings.Contains(text, "**bold**") {
+		t.Fatalf("raw bold markers should be rendered: %q", text)
+	}
+	if len(blocks) != 2 || blocks[1].Content != "# Hello\n\nUse `code` and **bold**." {
+		t.Fatalf("block content must stay raw for hover match: %+v", blocks)
+	}
+}
+
 func TestApplyThinHighlight_NotRounded(t *testing.T) {
 	lines := []string{"a", "b", "c", "d"}
 	got := ApplyThinHighlight(lines, 1, 2, 20)

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cliui/mdansi"
 )
 
 // TranscriptBlock is one request or response region in a session transcript.
@@ -16,7 +18,16 @@ type TranscriptBlock struct {
 }
 
 // FormatSessionTranscript builds a navigable ↑/↓ transcript and block map.
+// Assistant responses are rendered with mdansi gotui markup when enabled.
 func FormatSessionTranscript(msgs []ChatMessage) (text string, blocks []TranscriptBlock) {
+	return FormatSessionTranscriptWidth(msgs, 80)
+}
+
+// FormatSessionTranscriptWidth is FormatSessionTranscript with an explicit wrap width.
+func FormatSessionTranscriptWidth(msgs []ChatMessage, width int) (text string, blocks []TranscriptBlock) {
+	if width < 20 {
+		width = 20
+	}
 	var lines []string
 	add := func(s string) int {
 		lines = append(lines, s)
@@ -43,7 +54,11 @@ func FormatSessionTranscript(msgs []ChatMessage) (text string, blocks []Transcri
 				add("")
 			}
 			start := add("↓ response")
-			for _, ln := range strings.Split(turn.Response, "\n") {
+			body := turn.Response
+			if markdownEnabled() {
+				body = mdansi.RenderGotui(turn.Response, width)
+			}
+			for _, ln := range strings.Split(body, "\n") {
 				add(ln)
 			}
 			blocks = append(blocks, TranscriptBlock{

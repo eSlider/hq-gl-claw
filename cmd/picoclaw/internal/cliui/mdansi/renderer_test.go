@@ -102,3 +102,22 @@ func TestRenderGotui_Heading(t *testing.T) {
 		t.Fatalf("gotui mode should not emit ANSI: %q", got)
 	}
 }
+
+func TestWrapGotui_PreservesMarkup(t *testing.T) {
+	// Long styled line must keep style tokens after wrap.
+	in := "[" + strings.Repeat("word ", 30) + "](mod:bold)"
+	got := wrapPlain(in, 40)
+	if !strings.Contains(got, "](mod:bold)") {
+		t.Fatalf("wrap stripped markup: %q", got)
+	}
+	if strings.Contains(got, "\n") {
+		// expected wrap
+	} else {
+		t.Fatalf("expected wrapped lines: %q", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if visualMarkupWidth(line) > 40 {
+			t.Fatalf("line too wide: %q vis=%d", line, visualMarkupWidth(line))
+		}
+	}
+}

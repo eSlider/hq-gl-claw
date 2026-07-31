@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/yuin/goldmark"
@@ -466,10 +467,119 @@ func wrapLinePlain(b *strings.Builder, line string, width int) {
 		b.WriteString(line)
 		return
 	}
-	// Fallback: wrap by plain visual content (approximate for markup lines).
-	plain := stripGotuiMarkup(line)
-	wrapped := wrapANSI(plain, width) // no ANSI present
-	b.WriteString(wrapped)
+	segs := splitGotuiSegments(line)
+	var cur strings.Builder
+	vis := 0
+	lineStart := true
+	emitBreak := func() {
+		b.WriteString(cur.String())
+		b.WriteByte('\n')
+		cur.Reset()
+		vis = 0
+		lineStart = true
+	}
+	writeSeg := func(text, style string) {
+		if text == "" {
+			return
+		}
+		if style != "" {
+			text = strings.ReplaceAll(text, "]", "〉")
+			cur.WriteString("[")
+			cur.WriteString(text)
+			cur.WriteString("](")
+			cur.WriteString(style)
+			cur.WriteString(")")
+		} else {
+			cur.WriteString(text)
+		}
+		vis += runewidth.StringWidth(text)
+		lineStart = false
+	}
+	for _, seg := range segs {
+		remaining := seg.text
+		for remaining != "" {
+			rw := runewidth.StringWidth(remaining)
+			if vis+rw <= width {
+				writeSeg(remaining, seg.style)
+				break
+			}
+			// Need to split remaining to fit.
+			space := width - vis
+			if space <= 0 && !lineStart {
+				emitBreak()
+				continue
+			}
+			if space <= 0 {
+				space = width
+			}
+			cut := runewidth.Truncate(remaining, space, "")
+			if cut == "" {
+				// Single wide rune — force one char.
+				_, size := utf8.DecodeRuneInString(remaining)
+				cut = remaining[:size]
+			}
+			// Prefer breaking at last space in the cut when unstyled or whole styled chunk.
+			if sp := strings.LastIndexByte(cut, ' '); sp > 0 && runewidth.StringWidth(cut[:sp]) >= space/2 {
+				cut = cut[:sp]
+			}
+			writeSeg(cut, seg.style)
+			remaining = strings.TrimLeft(remaining[len(cut):], " ")
+			if remaining != "" {
+				emitBreak()
+			}
+		}
+	}
+	b.WriteString(cur.String())
+}
+
+type gotuiSeg struct {
+	text  string
+	style string // empty = unstyled
+}
+
+func splitGotuiSegments(s string) []gotuiSeg {
+	var out []gotuiSeg
+	runes := []rune(s)
+	var plain strings.Builder
+	flushPlain := func() {
+		if plain.Len() == 0 {
+			return
+		}
+		out = append(out, gotuiSeg{text: plain.String()})
+		plain.Reset()
+	}
+	for i := 0; i < len(runes); {
+		if runes[i] == '[' {
+			end := -1
+			for j := i + 1; j < len(runes); j++ {
+				if runes[j] == ']' {
+					end = j
+					break
+				}
+			}
+			if end > 0 && end+1 < len(runes) && runes[end+1] == '(' {
+				closeParen := -1
+				for j := end + 2; j < len(runes); j++ {
+					if runes[j] == ')' {
+						closeParen = j
+						break
+					}
+				}
+				if closeParen > 0 {
+					flushPlain()
+					text := string(runes[i+1 : end])
+					style := string(runes[end+2 : closeParen])
+					out = append(out, gotuiSeg{text: text, style: style})
+					i = closeParen + 1
+					continue
+				}
+			}
+		}
+		plain.WriteRune(runes[i])
+		i++
+	}
+	flushPlain()
+	return out
 }
 
 func stripGotuiMarkup(s string) string {

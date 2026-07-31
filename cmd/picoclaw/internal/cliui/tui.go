@@ -59,6 +59,7 @@ type AgentTUI struct {
 	currentKey    string
 
 	transcriptPlain  string
+	transcriptMsgs   []ChatMessage // source msgs for resize reflow
 	transcriptBlocks []TranscriptBlock
 	highlightKind    TreeRowKind
 	highlightContent string
@@ -220,6 +221,7 @@ func (t *AgentTUI) setResultPlainLocked(content string) {
 	t.plainBuf = content
 	t.pretty = false
 	t.transcriptPlain = ""
+	t.transcriptMsgs = nil
 	t.transcriptBlocks = nil
 	t.hasHighlight = false
 	t.resultLines = strings.Split(content, "\n")
@@ -231,6 +233,7 @@ func (t *AgentTUI) setResultPrettyLocked(content string) {
 	t.plainBuf = content
 	t.pretty = true
 	t.transcriptPlain = ""
+	t.transcriptMsgs = nil
 	t.transcriptBlocks = nil
 	t.hasHighlight = false
 	w := t.result.Inner.Dx()
@@ -247,7 +250,12 @@ func (t *AgentTUI) setResultPrettyLocked(content string) {
 }
 
 func (t *AgentTUI) setTranscriptLocked(msgs []ChatMessage) {
-	text, blocks := FormatSessionTranscript(msgs)
+	w := t.result.Inner.Dx()
+	if w < 20 {
+		w = 40
+	}
+	text, blocks := FormatSessionTranscriptWidth(msgs, w)
+	t.transcriptMsgs = msgs
 	t.transcriptPlain = text
 	t.transcriptBlocks = blocks
 	t.plainBuf = text
@@ -750,9 +758,13 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 		if payload, ok := e.Payload.(ui.Resize); ok {
 			t.mu.Lock()
 			t.width, t.height = payload.Width, payload.Height
-			if t.pretty && t.plainBuf != "" {
+			t.applyChromeLocked()
+			switch {
+			case t.transcriptMsgs != nil || t.transcriptPlain != "":
+				t.setTranscriptLocked(t.transcriptMsgs)
+			case t.pretty && t.plainBuf != "":
 				t.setResultPrettyLocked(t.plainBuf)
-			} else {
+			default:
 				t.setResultPlainLocked(t.plainBuf)
 			}
 			t.rebuildTreeLocked()
