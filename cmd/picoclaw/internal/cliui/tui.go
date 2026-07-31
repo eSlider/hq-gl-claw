@@ -32,10 +32,10 @@ type AgentTUI struct {
 	input    *widgets.TextArea
 	status   *widgets.Paragraph
 
-	mu       sync.Mutex
-	focus    Focus
-	width    int
-	height   int
+	mu        sync.Mutex
+	focus     Focus
+	width     int
+	height    int
 	inputRows int
 
 	resultLines []string
@@ -129,7 +129,10 @@ func (t *AgentTUI) applyChromeLocked() {
 	t.highlightFocusLocked()
 }
 
-func setWidgetRect(w interface{ SetRect(int, int, int, int) }, r Rect) {
+func setWidgetRect(w interface {
+	SetRect(x1, y1, x2, y2 int)
+}, r Rect,
+) {
 	w.SetRect(r.X, r.Y, r.X+r.W, r.Y+r.H)
 }
 
@@ -171,10 +174,6 @@ func (t *AgentTUI) refreshResultViewLocked() {
 func (t *AgentTUI) setResultPlainLocked(content string) {
 	t.plainBuf = content
 	t.pretty = false
-	w := t.result.Inner.Dx()
-	if w < 20 {
-		w = 40
-	}
 	t.resultLines = strings.Split(content, "\n")
 	t.resultOff = maxInt(0, len(t.resultLines)-maxInt(1, t.result.Inner.Dy()))
 	t.refreshResultViewLocked()

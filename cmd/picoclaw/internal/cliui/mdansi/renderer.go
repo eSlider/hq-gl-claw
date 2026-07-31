@@ -231,7 +231,12 @@ func (r *ansiRenderer) renderEmphasis(w util.BufWriter, _ []byte, n ast.Node, en
 	return ast.WalkContinue, nil
 }
 
-func (r *ansiRenderer) renderCodeSpan(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *ansiRenderer) renderCodeSpan(
+	w util.BufWriter,
+	source []byte,
+	n ast.Node,
+	entering bool,
+) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
@@ -273,14 +278,24 @@ func (r *ansiRenderer) writeCodeLines(w util.BufWriter, source []byte, n ast.Nod
 	_, _ = w.WriteString("\n\n")
 }
 
-func (r *ansiRenderer) renderCodeBlock(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *ansiRenderer) renderCodeBlock(
+	w util.BufWriter,
+	source []byte,
+	n ast.Node,
+	entering bool,
+) (ast.WalkStatus, error) {
 	if entering {
 		r.writeCodeLines(w, source, n)
 	}
 	return ast.WalkContinue, nil
 }
 
-func (r *ansiRenderer) renderFencedCode(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *ansiRenderer) renderFencedCode(
+	w util.BufWriter,
+	source []byte,
+	n ast.Node,
+	entering bool,
+) (ast.WalkStatus, error) {
 	if entering {
 		r.writeCodeLines(w, source, n)
 	}
@@ -309,7 +324,7 @@ func (r *ansiRenderer) renderListItem(w util.BufWriter, _ []byte, _ ast.Node, en
 	if !entering {
 		return ast.WalkContinue, nil
 	}
-	indent := strings.Repeat("  ", max(0, r.listDepth-1))
+	indent := strings.Repeat("  ", maxInt(0, r.listDepth-1))
 	_, _ = w.WriteString(indent)
 	idx := -1
 	if len(r.orderedIdx) > 0 {
@@ -346,7 +361,12 @@ func (r *ansiRenderer) renderLink(w util.BufWriter, _ []byte, n ast.Node, enteri
 	return ast.WalkContinue, nil
 }
 
-func (r *ansiRenderer) renderAutoLink(w util.BufWriter, source []byte, n ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *ansiRenderer) renderAutoLink(
+	w util.BufWriter,
+	source []byte,
+	n ast.Node,
+	entering bool,
+) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
@@ -385,7 +405,7 @@ func (r *ansiRenderer) renderBlockquote(w util.BufWriter, _ []byte, _ ast.Node, 
 
 func (r *ansiRenderer) renderHR(w util.BufWriter, _ []byte, _ ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
-		_, _ = w.WriteString(strings.Repeat("─", min(r.width, 40)))
+		_, _ = w.WriteString(strings.Repeat("─", minInt(r.width, 40)))
 		_, _ = w.WriteString("\n\n")
 	}
 	return ast.WalkContinue, nil
@@ -597,14 +617,14 @@ func runewidthString(s string) int {
 	return runewidth.StringWidth(s)
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}

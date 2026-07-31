@@ -82,7 +82,17 @@ func TestChromeIncludesStatusBar(t *testing.T) {
 	if c.Result.H != 21 {
 		t.Fatalf("result H=%d want 21", c.Result.H)
 	}
-	bar := FormatStatusBar(TurnMetrics{PromptTokens: 10, CompletionTokens: 5, PromptExact: true, CompletionExact: true, Elapsed: time.Second}, SessionMetrics{}, "input")
+	bar := FormatStatusBar(
+		TurnMetrics{
+			PromptTokens:     10,
+			CompletionTokens: 5,
+			PromptExact:      true,
+			CompletionExact:  true,
+			Elapsed:          time.Second,
+		},
+		SessionMetrics{},
+		"input",
+	)
 	if !strings.Contains(bar, "↑10") {
 		t.Fatalf("status missing metrics: %q", bar)
 	}

@@ -102,4 +102,3 @@ func TestRenderGotui_Heading(t *testing.T) {
 		t.Fatalf("gotui mode should not emit ANSI: %q", got)
 	}
 }
-

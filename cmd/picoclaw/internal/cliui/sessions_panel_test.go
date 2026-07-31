@@ -35,11 +35,11 @@ func TestLastUserRequestTitle(t *testing.T) {
 }
 
 type fakeLister struct {
-	keys map[string][]ChatMessage
+	keys  map[string][]ChatMessage
 	order []string
 }
 
-func (f *fakeLister) ListSessions() []string { return f.order }
+func (f *fakeLister) ListSessions() []string              { return f.order }
 func (f *fakeLister) GetHistory(key string) []ChatMessage { return f.keys[key] }
 
 func TestBuildSessionItems(t *testing.T) {
