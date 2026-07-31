@@ -12,7 +12,8 @@
 ## Interactive TUI (TTY) — gotui
 
 Built on [metaspartan/gotui](https://github.com/metaspartan/gotui) (tcell widgets).
-Markdown in the result pane uses `mdansi.RenderGotui` after each turn completes;
+Markdown in the result pane uses `mdansi.RenderGotui` after each turn completes
+and for ↓ response blocks in the session transcript (↑ requests stay plain);
 streaming stays plain text.
 
 ```
