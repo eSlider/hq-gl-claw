@@ -101,3 +101,7 @@ above for markdown/binary; pane UX regressions are why B was replaced by C.
 - Failures / disabled env fall back to plain text.
 - gotui result pane uses `mdansi.RenderGotui` (termui-style `[text](fg:…)` markup);
   one-shot `-m` / stdout uses ANSI SGR (`mdansi.Render`).
+- Fenced code blocks use **internal lite lexers** (html/css/js/go/json/shell/yaml):
+  language header + `│` gutter + token colors. No Chroma (keeps binary/RSS near
+  baseline). Unknown langs stay monochrome framed. Sample HTML-fence render
+  (~10 lines): ~33 µs, ~41 KB, ~273 allocs — well under prior glamour ~340 KB/op.

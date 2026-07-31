@@ -54,7 +54,8 @@ func TestRender_Heading(t *testing.T) {
 func TestRender_FencedCode(t *testing.T) {
 	in := "```go\nfunc main() {}\n```"
 	got := Render(in, 80)
-	if !strings.Contains(got, "func main()") {
+	plain := stripANSI(got)
+	if !strings.Contains(plain, "func main()") {
 		t.Fatalf("missing code body: %q", got)
 	}
 }

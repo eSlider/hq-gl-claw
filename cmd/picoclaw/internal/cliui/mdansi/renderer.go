@@ -29,15 +29,20 @@ const (
 )
 
 const (
-	sgrReset  = "\x1b[0m"
-	sgrBold   = "\x1b[1m"
-	sgrItalic = "\x1b[3m"
-	sgrCode   = "\x1b[36m"
-	sgrHead   = "\x1b[1;36m"
-	sgrLink   = "\x1b[34m"
-	sgrFence  = "\x1b[90m"
-	sgrQuote  = "\x1b[3;90m"
-	sgrStrike = "\x1b[9m"
+	sgrReset   = "\x1b[0m"
+	sgrBold    = "\x1b[1m"
+	sgrItalic  = "\x1b[3m"
+	sgrCode    = "\x1b[36m"
+	sgrHead    = "\x1b[1;36m"
+	sgrLink    = "\x1b[34m"
+	sgrQuote   = "\x1b[3;90m"
+	sgrStrike  = "\x1b[9m"
+	sgrKeyword = "\x1b[36m"   // cyan
+	sgrString  = "\x1b[32m"   // green
+	sgrComment = "\x1b[3;90m" // italic grey
+	sgrAttr    = "\x1b[33m"   // yellow
+	sgrNumber  = "\x1b[35m"   // magenta
+	sgrPunct   = "\x1b[90m"   // dim
 )
 
 var bufPool = sync.Pool{
@@ -259,7 +264,7 @@ func (r *ansiRenderer) renderCodeSpan(
 	return ast.WalkSkipChildren, nil
 }
 
-func (r *ansiRenderer) writeCodeLines(w util.BufWriter, source []byte, n ast.Node) {
+func (r *ansiRenderer) writeHighlightedCode(w util.BufWriter, source []byte, n ast.Node, lang string) {
 	var b strings.Builder
 	lines := n.Lines()
 	for i := 0; i < lines.Len(); i++ {
@@ -267,16 +272,113 @@ func (r *ansiRenderer) writeCodeLines(w util.BufWriter, source []byte, n ast.Nod
 		b.Write((&line).Value(source))
 	}
 	body := b.String()
-	if r.mode == ModeGotui {
-		r.pushGotui("fg:darkgrey")
-		r.writeStyled(w, body)
-		r.popGotui()
-	} else {
-		r.openANSI(w, sgrFence)
-		_, _ = w.WriteString(body)
-		r.closeANSI(w)
+	label := strings.TrimSpace(lang)
+	if label == "" {
+		label = "code"
 	}
-	_, _ = w.WriteString("\n\n")
+
+	// Dim language header.
+	r.writeToken(w, KindComment, label)
+	_, _ = w.WriteString("\n")
+
+	tokens := Highlight(lang, body)
+	if len(tokens) == 0 {
+		r.writeGutter(w)
+		_, _ = w.WriteString("\n\n")
+		return
+	}
+
+	// Emit tokens with a soft gutter at each line start.
+	atLineStart := true
+	for _, tok := range tokens {
+		text := tok.Text
+		for len(text) > 0 {
+			if atLineStart {
+				r.writeGutter(w)
+				atLineStart = false
+			}
+			nl := strings.IndexByte(text, '\n')
+			if nl < 0 {
+				r.writeToken(w, tok.Kind, text)
+				break
+			}
+			if nl > 0 {
+				r.writeToken(w, tok.Kind, text[:nl])
+			}
+			_ = w.WriteByte('\n')
+			atLineStart = true
+			text = text[nl+1:]
+		}
+	}
+	if !strings.HasSuffix(body, "\n") {
+		_ = w.WriteByte('\n')
+	}
+	_, _ = w.WriteString("\n")
+}
+
+func (r *ansiRenderer) writeGutter(w util.BufWriter) {
+	r.writeToken(w, KindPunct, "│ ")
+}
+
+func (r *ansiRenderer) writeToken(w util.BufWriter, kind TokenKind, text string) {
+	if text == "" {
+		return
+	}
+	if r.mode == ModeGotui {
+		if style := gotuiStyleFor(kind); style != "" {
+			r.pushGotui(style)
+			r.writeStyled(w, text)
+			r.popGotui()
+			return
+		}
+		r.writeStyled(w, text)
+		return
+	}
+	if sgr := ansiStyleFor(kind); sgr != "" {
+		r.openANSI(w, sgr)
+		_, _ = w.WriteString(text)
+		r.closeANSI(w)
+		return
+	}
+	_, _ = w.WriteString(text)
+}
+
+func ansiStyleFor(kind TokenKind) string {
+	switch kind {
+	case KindKeyword, KindTag:
+		return sgrKeyword
+	case KindString:
+		return sgrString
+	case KindComment:
+		return sgrComment
+	case KindAttr:
+		return sgrAttr
+	case KindNumber:
+		return sgrNumber
+	case KindPunct:
+		return sgrPunct
+	default:
+		return ""
+	}
+}
+
+func gotuiStyleFor(kind TokenKind) string {
+	switch kind {
+	case KindKeyword, KindTag:
+		return "fg:cyan"
+	case KindString:
+		return "fg:green"
+	case KindComment:
+		return "fg:darkgrey,mod:italic"
+	case KindAttr:
+		return "fg:yellow"
+	case KindNumber:
+		return "fg:magenta"
+	case KindPunct:
+		return "fg:darkgrey"
+	default:
+		return ""
+	}
 }
 
 func (r *ansiRenderer) renderCodeBlock(
@@ -286,7 +388,7 @@ func (r *ansiRenderer) renderCodeBlock(
 	entering bool,
 ) (ast.WalkStatus, error) {
 	if entering {
-		r.writeCodeLines(w, source, n)
+		r.writeHighlightedCode(w, source, n, "")
 	}
 	return ast.WalkContinue, nil
 }
@@ -298,7 +400,11 @@ func (r *ansiRenderer) renderFencedCode(
 	entering bool,
 ) (ast.WalkStatus, error) {
 	if entering {
-		r.writeCodeLines(w, source, n)
+		lang := ""
+		if fc, ok := n.(*ast.FencedCodeBlock); ok {
+			lang = string(fc.Language(source))
+		}
+		r.writeHighlightedCode(w, source, n, lang)
 	}
 	return ast.WalkContinue, nil
 }
