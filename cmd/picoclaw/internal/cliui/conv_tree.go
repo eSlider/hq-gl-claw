@@ -289,36 +289,35 @@ func formatNodeRow(
 	b.WriteString(prefix)
 	if depth > 0 {
 		if isLast {
-			b.WriteString("└")
+			b.WriteString(connectorLast)
 		} else {
-			b.WriteString("├")
+			b.WriteString(connectorMid)
 		}
 		// Collapsed non-leaf: show ▶ in the connector slot; else ─.
 		if hasKids && !exp {
-			b.WriteString("▶")
+			b.WriteString(glyphCollapsed)
 		} else {
-			b.WriteString("─")
+			b.WriteString(connectorLine)
 		}
 	} else if hasKids && !exp {
-		b.WriteString("▶ ")
+		b.WriteString(glyphCollapsed + " ")
+	}
+	writeGlyphTitle := func(glyph string) {
+		b.WriteString(glyph)
+		b.WriteByte(' ')
+		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
 	}
 	switch n.Kind {
 	case TreeRowSession:
-		mark := "○"
+		mark := glyphSessionIdle
 		if n.Session == currentKey {
-			mark = "●"
+			mark = glyphSessionActive
 		}
-		b.WriteString(mark)
-		b.WriteByte(' ')
-		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
+		writeGlyphTitle(mark)
 	case TreeRowRequest:
-		b.WriteString("↑")
-		b.WriteByte(' ')
-		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
+		writeGlyphTitle(glyphRequest)
 	case TreeRowResponse:
-		b.WriteString("↓")
-		b.WriteByte(' ')
-		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
+		writeGlyphTitle(glyphResponse)
 	default:
 		b.WriteString(TruncateTitle(n.Content, titleWidth))
 	}

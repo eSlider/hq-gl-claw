@@ -71,38 +71,38 @@ type AgentTUI struct {
 	eventCh  chan PaneEvent
 }
 
+// newParagraph builds a bordered paragraph panel with a title.
+func newParagraph(title string) *widgets.Paragraph {
+	p := widgets.NewParagraph()
+	p.Title = title
+	p.Border = true
+	p.BorderRounded = true
+	return p
+}
+
 // NewAgentTUI builds the interactive TUI (not yet initialized on the terminal).
 func NewAgentTUI(prompt string) *AgentTUI {
-	progress := widgets.NewParagraph()
-	progress.Title = ""
-	progress.Border = true
-	progress.BorderRounded = true
+	progress := newParagraph("")
 	progress.Text = "ready"
-	progress.TextStyle = ui.NewStyle(ui.ColorYellow)
+	progress.TextStyle = ui.NewStyle(colorProgress)
 
-	result := widgets.NewParagraph()
-	result.Title = "result"
-	result.Border = true
-	result.BorderRounded = true
+	result := newParagraph("result")
 	result.WrapText = false
 
 	sessions := widgets.NewList()
 	sessions.Title = "sessions"
 	sessions.Border = true
 	sessions.BorderRounded = true
-	sessions.SelectedStyle = ui.NewStyle(ui.ColorBlack, ui.ColorCyan)
+	sessions.SelectedStyle = ui.NewStyle(ui.ColorBlack, colorAccent)
 
 	input := widgets.NewTextArea()
-	input.Title = "input"
+	input.Title = inputHint
 	input.Border = true
 	input.BorderRounded = true
 	input.ShowCursor = true
 	input.Text = ""
 
-	status := widgets.NewParagraph()
-	status.Title = ""
-	status.Border = true
-	status.BorderRounded = true
+	status := newParagraph("")
 	status.Text = "↑in ↓out · elapsed · tps · waiting for first turn"
 
 	if prompt == "" {
@@ -161,8 +161,8 @@ func setWidgetRect(w interface {
 }
 
 func (t *AgentTUI) highlightFocusLocked() {
-	idle := ui.NewStyle(ui.ColorWhite)
-	active := ui.NewStyle(ui.ColorCyan)
+	idle := ui.NewStyle(colorIdle)
+	active := ui.NewStyle(colorAccent)
 	t.result.BorderStyle.Fg = idle.Fg
 	t.sessions.BorderStyle.Fg = idle.Fg
 	t.input.BorderStyle.Fg = idle.Fg
@@ -513,6 +513,28 @@ func (t *AgentTUI) refreshSessionsViewLocked() {
 	}
 	t.sessions.Rows = rows
 	t.sessions.SelectedRow = t.treeSel - t.treeTop
+	t.refreshTitlesLocked()
+}
+
+// refreshTitlesLocked keeps pane titles glanceable: the sessions pane shows how
+// many sessions exist, and the result pane shows which conversation it displays.
+func (t *AgentTUI) refreshTitlesLocked() {
+	count := 0
+	for _, r := range t.treeRows {
+		if r.Kind == TreeRowSession {
+			count++
+		}
+	}
+	t.sessions.Title = fmt.Sprintf("sessions · %d", count)
+
+	title := "result"
+	if root := t.forest[t.currentKey]; root != nil {
+		if bc := sessionTitleFromTree(root); bc != "" && bc != "(empty)" {
+			w := maxInt(8, t.result.Inner.Dx()-12)
+			title = "result · " + TruncateTitle(bc, w)
+		}
+	}
+	t.result.Title = title
 }
 
 // ShowSessionContent loads text into the result pane for a switched session.
@@ -806,16 +828,7 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 		t.requestRedraw()
 	case TreeRowRequest:
 		t.mu.Lock()
-		switched := row.SessionKey != t.currentKey
-		if switched {
-			t.focusSessionLocked(t.currentKey, row.SessionKey)
-			t.rebuildTreeLocked()
-		}
-		t.selectedID = row.NodeID
-		ExpandAncestors(t.treeExpanded, t.nodeByIDLocked(row.NodeID))
-		t.rebuildTreeLocked()
-		t.autofillFromRequestLocked(row.Content)
-		t.applyHoverHighlightLocked(row.Kind, row.Content)
+		switched := t.selectLeafLocked(row, true)
 		t.focus = FocusInput
 		t.highlightFocusLocked()
 		key := row.SessionKey
@@ -826,15 +839,7 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 		t.requestRedraw()
 	case TreeRowResponse:
 		t.mu.Lock()
-		switched := row.SessionKey != t.currentKey
-		if switched {
-			t.focusSessionLocked(t.currentKey, row.SessionKey)
-			t.rebuildTreeLocked()
-		}
-		t.selectedID = row.NodeID
-		ExpandAncestors(t.treeExpanded, t.nodeByIDLocked(row.NodeID))
-		t.rebuildTreeLocked()
-		t.applyHoverHighlightLocked(row.Kind, row.Content)
+		switched := t.selectLeafLocked(row, false)
 		key := row.SessionKey
 		t.mu.Unlock()
 		if switched {
@@ -842,6 +847,27 @@ func (t *AgentTUI) activateTreeRow(row SessionTreeRow) {
 		}
 		t.requestRedraw()
 	}
+}
+
+// selectLeafLocked focuses row's session (if different), selects the node,
+// reveals it in the tree, previews its content, and — for requests — optionally
+// autofills the input. Returns whether the active session changed.
+func (t *AgentTUI) selectLeafLocked(row SessionTreeRow, autofill bool) bool {
+	switched := row.SessionKey != t.currentKey
+	if switched {
+		t.focusSessionLocked(t.currentKey, row.SessionKey)
+	}
+	t.selectedID = row.NodeID
+	ExpandAncestors(t.treeExpanded, t.nodeByIDLocked(row.NodeID))
+	t.rebuildTreeLocked()
+	if switched {
+		t.loadTranscriptForCurrentLocked()
+	}
+	if autofill {
+		t.autofillFromRequestLocked(row.Content)
+	}
+	t.applyHoverHighlightLocked(row.Kind, row.Content)
+	return switched
 }
 
 func (t *AgentTUI) handleResultKey(e ui.Event) {
@@ -875,31 +901,19 @@ func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 	h := maxInt(1, t.sessions.Inner.Dy())
 	switch e.ID {
 	case "j", "<Down>":
-		if t.treeSel < n-1 {
-			t.treeSel++
-		}
-		t.refreshSessionsViewLocked()
-		t.previewTreeSelectionLocked()
+		t.moveTreeSelLocked(1)
 		t.mu.Unlock()
 		return true
 	case "k", "<Up>":
-		if t.treeSel > 0 {
-			t.treeSel--
-		}
-		t.refreshSessionsViewLocked()
-		t.previewTreeSelectionLocked()
+		t.moveTreeSelLocked(-1)
 		t.mu.Unlock()
 		return true
 	case "<PageDown>":
-		t.treeSel = ClampOffset(t.treeSel+h, n, 1)
-		t.refreshSessionsViewLocked()
-		t.previewTreeSelectionLocked()
+		t.moveTreeSelLocked(h)
 		t.mu.Unlock()
 		return true
 	case "<PageUp>":
-		t.treeSel = ClampOffset(t.treeSel-h, n, 1)
-		t.refreshSessionsViewLocked()
-		t.previewTreeSelectionLocked()
+		t.moveTreeSelLocked(-h)
 		t.mu.Unlock()
 		return true
 	case "<Enter>", "<Space>", "l", "<Right>":
@@ -936,6 +950,18 @@ func (t *AgentTUI) handleSessionsKey(e ui.Event) bool {
 		t.mu.Unlock()
 		return false
 	}
+}
+
+// moveTreeSelLocked shifts the tree selection by delta rows (clamped) and
+// previews the newly selected node in the result pane.
+func (t *AgentTUI) moveTreeSelLocked(delta int) {
+	n := len(t.treeRows)
+	if n == 0 {
+		return
+	}
+	t.treeSel = ClampOffset(t.treeSel+delta, n, 1)
+	t.refreshSessionsViewLocked()
+	t.previewTreeSelectionLocked()
 }
 
 func (t *AgentTUI) previewTreeSelectionLocked() {
