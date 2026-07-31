@@ -1,6 +1,9 @@
 package cliui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEmojiProgress_Cycles(t *testing.T) {
 	a := EmojiProgress(0)
@@ -11,19 +14,30 @@ func TestEmojiProgress_Cycles(t *testing.T) {
 	if a == b {
 		t.Fatalf("expected different frames: %q vs %q", a, b)
 	}
-	// wraps
-	n := len(thinkingEmojis)
+	n := len(progressSpinners)
 	if EmojiProgress(n) != EmojiProgress(0) {
 		t.Fatal("should wrap")
 	}
-	if !containsEmoji(a) {
-		t.Fatalf("expected emoji in %q", a)
+	if !strings.Contains(a, "◐") && !hasSpinner(a) {
+		t.Fatalf("expected spinner in %q", a)
+	}
+	if !strings.Contains(a, "thinking") {
+		t.Fatalf("expected thinking label in %q", a)
 	}
 }
 
-func containsEmoji(s string) bool {
-	for _, e := range thinkingEmojis {
-		if len(s) >= len(e) && s[:len(e)] == e {
+func TestSpinnerFrame_Sequence(t *testing.T) {
+	want := []string{"◐", "◓", "◑", "◒", "◐"}
+	for i, w := range want {
+		if got := SpinnerFrame(i); got != w {
+			t.Fatalf("tick %d: got %q want %q", i, got, w)
+		}
+	}
+}
+
+func hasSpinner(s string) bool {
+	for _, e := range progressSpinners {
+		if strings.Contains(s, e) {
 			return true
 		}
 	}

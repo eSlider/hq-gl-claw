@@ -53,30 +53,8 @@ func (p *ProgressBar) Render(tick int) string {
 	if p == nil {
 		return ""
 	}
-	inner := p.width - 2
-	if inner < 4 {
-		inner = 4
-	}
-	pos := tick % (inner * 2)
-	if pos >= inner {
-		pos = inner*2 - pos - 1
-	}
-	var b strings.Builder
-	b.WriteByte('[')
-	for i := 0; i < inner; i++ {
-		if i == pos {
-			b.WriteByte('>')
-		} else if i < pos {
-			b.WriteByte('=')
-		} else {
-			b.WriteByte(' ')
-		}
-	}
-	b.WriteByte(']')
-	b.WriteByte(' ')
-	b.WriteString(p.label)
-	b.WriteString("…")
-	return b.String()
+	spin := SpinnerFrame(tick)
+	return fmt.Sprintf("%s %s…", spin, p.label)
 }
 
 // LiveDisplay streams agent text to out while showing progress on errW.

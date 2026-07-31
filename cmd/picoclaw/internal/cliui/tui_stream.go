@@ -111,15 +111,16 @@ func (s *PaneStreamer) animateProgress(stop <-chan struct{}, done chan struct{})
 			s.ui.mu.Lock()
 			switch {
 			case streamed:
-				emoji := thinkingEmojis[tick%len(thinkingEmojis)]
+				spin := SpinnerFrame(tick)
 				gen := elapsed
 				if !firstAt.IsZero() {
 					gen = time.Since(firstAt)
 				}
-				s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", emoji, TPS(outTok, gen))
+				s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", spin, TPS(outTok, gen))
 			case reasonTok > 0:
-				emoji := thinkingEmojis[tick%len(thinkingEmojis)]
-				s.ui.progress.Text = fmt.Sprintf("%s think %s", emoji, formatElapsed(elapsed))
+				s.ui.progress.Text = fmt.Sprintf(
+					"%s think %s", SpinnerFrame(tick), formatElapsed(elapsed),
+				)
 			default:
 				s.ui.progress.Text = EmojiProgress(tick)
 			}
@@ -217,7 +218,7 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPlainLocked(content)
-	s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", thinkingEmojis[0], TPS(m.CompletionTokens, gen))
+	s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", SpinnerFrame(0), TPS(m.CompletionTokens, gen))
 	s.ui.last = m
 	s.ui.refreshStatusLocked()
 	s.ui.mu.Unlock()
@@ -247,9 +248,9 @@ func (s *PaneStreamer) UpdateReasoning(_ context.Context, content string) error 
 	s.ui.mu.Lock()
 	// Keep answer pane on think text until the first answer token arrives.
 	if !s.streamed.Load() {
-		s.ui.setResultPlainLocked("💭 thinking\n\n" + content)
+		s.ui.setResultPlainLocked("thinking\n\n" + content)
 		s.ui.progress.Text = fmt.Sprintf(
-			"%s think %s", thinkingEmojis[0], formatElapsed(elapsed),
+			"%s think %s", SpinnerFrame(0), formatElapsed(elapsed),
 		)
 	}
 	s.ui.last = m
@@ -311,7 +312,7 @@ func (s *PaneStreamer) Finish(content string) {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPrettyLocked(last)
-	s.ui.progress.Text = fmt.Sprintf("✅ %.1f tps", TPS(m.CompletionTokens, m.GenDuration()))
+	s.ui.progress.Text = fmt.Sprintf("● %.1f tps", TPS(m.CompletionTokens, m.GenDuration()))
 	s.ui.mu.Unlock()
 	if !applied {
 		s.ui.applyTurnMetrics(m)

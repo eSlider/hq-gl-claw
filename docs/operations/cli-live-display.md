@@ -78,9 +78,9 @@ else newest `cli:<nano>`, else `cli:default`. Force with `-s KEY`.
 | Esc / Ctrl+C | Quit (Esc first closes help if open) |
 | `exit` / `quit` | Quit from input |
 
-Waiting for a reply: **emoji** animation in the bottom-right progress cell
-(`🦞💭✨🔮…`) for the **whole turn** (including tool gaps after the first token),
-then `✅ done`. Left status keeps ↑↓ metrics with `⏳` while streaming.
+Waiting for a reply: **◐◓◑◒** spinner in the bottom-right progress cell
+for the **whole turn** (including tool gaps after the first token),
+then `● done`. Left status keeps ↑↓ metrics with `⏳` while streaming.
 
 Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
 optional ttft, session Σ, **model · api host**, focus name.

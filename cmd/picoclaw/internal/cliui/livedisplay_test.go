@@ -49,8 +49,8 @@ func TestProgressBar_Render(t *testing.T) {
 	bar := NewProgressBar(20)
 	s0 := bar.Render(0)
 	s1 := bar.Render(1)
-	if !strings.Contains(s0, "[") || !strings.Contains(s0, "]") {
-		t.Fatalf("missing brackets: %q", s0)
+	if !strings.Contains(s0, "◐") {
+		t.Fatalf("expected spinner: %q", s0)
 	}
 	if s0 == s1 {
 		t.Fatalf("expected animation frame to change")
