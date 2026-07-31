@@ -44,9 +44,14 @@ optional ttft, plus session Σ totals.
 | j/k ↑↓ / wheel | Scroll result **or** move session cursor |
 | g / G / Home / End | Top / bottom of result |
 | PgUp / PgDn | Page result |
+| Ctrl+N | **New session** (any focus) |
 | n | **New session** (sessions focus) |
 | Esc / Ctrl+C | Quit |
 | `exit` / `quit` | Quit from input |
+
+On launch (without `-s`), the TUI restores the **last used** cli session
+(`~/.picoclaw/last_cli_session`), else the newest `cli:<nano>` key, else
+`cli:default`. Pass `-s KEY` to force a session.
 
 Resize clears and re-lays out via `ComputeChrome` + gotui `Render`.
 

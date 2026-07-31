@@ -301,6 +301,13 @@ func (t *AgentTUI) handleUIEvent(e ui.Event, handler func(PaneEvent) error) bool
 	switch e.ID {
 	case "<C-c>", "<Escape>":
 		return true
+	case "<C-n>":
+		// New session from any focus (also available as "n" in sessions pane).
+		if !t.busy.Load() {
+			t.emit(PaneEvent{Action: KeyActionNewSession, Payload: NewSessionKey()})
+			t.renderAll()
+		}
+		return false
 	case "<Resize>":
 		if payload, ok := e.Payload.(ui.Resize); ok {
 			t.mu.Lock()

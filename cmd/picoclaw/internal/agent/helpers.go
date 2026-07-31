@@ -20,11 +20,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/session"
 )
 
-func agentCmd(message, sessionKey, model string, debug bool) error {
-	if sessionKey == "" {
-		sessionKey = "cli:default"
-	}
-
+func agentCmd(message, sessionKey string, sessionSet bool, model string, debug bool) error {
 	cfg, err := internal.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("error loading config: %w", err)
@@ -80,11 +76,22 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	}
 	logger.InfoCF("agent", "Agent initialized", logFields)
 
+	home := internal.GetPicoclawHome()
+	lister := newAgentSessionLister(agentLoop)
+	sessionKey = cliui.ResolveCLISession(cliui.ResolveCLISessionOpts{
+		Explicit:    sessionKey,
+		ExplicitSet: sessionSet,
+		Keys:        lister.ListSessions(),
+		Last:        cliui.LoadLastCLISession(home),
+		Fallback:    cliui.DefaultCLISession,
+	})
+	_ = cliui.SaveLastCLISession(home, sessionKey)
+
 	if message != "" {
 		return runOneTurn(agentLoop, msgBus, message, sessionKey)
 	}
 
-	fmt.Printf("%s Interactive mode (Ctrl+C to exit)\n\n", internal.Logo)
+	fmt.Printf("%s Interactive mode (Ctrl+C exit · Ctrl+N new session)\n\n", internal.Logo)
 	interactiveMode(agentLoop, msgBus, sessionKey)
 
 	return nil
@@ -167,13 +174,17 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 		return err
 	}
 
+	home := internal.GetPicoclawHome()
 	lister := newAgentSessionLister(agentLoop)
 	ui.SyncSessions(lister, sessionKey)
+	ui.ShowSessionContent(cliui.LastAssistantContent(lister.GetHistory(sessionKey)))
+	_ = cliui.SaveLastCLISession(home, sessionKey)
 
 	return ui.Run(func(ev cliui.PaneEvent) error {
 		switch ev.Action {
 		case cliui.KeyActionSwitchSession:
 			sessionKey = ev.Payload
+			_ = cliui.SaveLastCLISession(home, sessionKey)
 			ui.SyncSessions(lister, sessionKey)
 			hist := lister.GetHistory(sessionKey)
 			ui.ShowSessionContent(cliui.LastAssistantContent(hist))
@@ -183,6 +194,7 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 			if sessionKey == "" {
 				sessionKey = cliui.NewSessionKey()
 			}
+			_ = cliui.SaveLastCLISession(home, sessionKey)
 			ui.SyncSessions(lister, sessionKey)
 			ui.ShowSessionContent("")
 			return nil
@@ -197,6 +209,7 @@ func paneInteractiveMode(agentLoop *agent.AgentLoop, msgBus *bus.MessageBus, ses
 				return err
 			}
 			streamer.Finish(response)
+			_ = cliui.SaveLastCLISession(home, sessionKey)
 			ui.SyncSessions(lister, sessionKey)
 			return nil
 		default:
