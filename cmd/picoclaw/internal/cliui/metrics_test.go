@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/sipeed/picoclaw/pkg/bus"
 )
 
@@ -124,8 +125,11 @@ func TestSessionMetrics_AddTurn(t *testing.T) {
 
 func TestChromeIncludesStatusBar(t *testing.T) {
 	c := ComputeChrome(80, 24, 1)
-	if c.Status.H != 3 || c.Progress.H != 3 || c.Input.H != 1 {
-		t.Fatalf("chrome progress=%d input=%d status=%d", c.Progress.H, c.Input.H, c.Status.H)
+	if c.Status.H != 3 || c.Input.H != 1 {
+		t.Fatalf("chrome input=%d status=%d", c.Input.H, c.Status.H)
+	}
+	if c.Status.W != 80 {
+		t.Fatalf("status W=%d want full width 80", c.Status.W)
 	}
 	if c.Result.H != 20 { // 24 - 1 - 3
 		t.Fatalf("result H=%d want 20", c.Result.H)
@@ -143,5 +147,24 @@ func TestChromeIncludesStatusBar(t *testing.T) {
 	)
 	if !strings.Contains(bar, "↑10") {
 		t.Fatalf("status missing metrics: %q", bar)
+	}
+	combined := FormatCombinedStatusBar(bar, "◐", 60)
+	if !strings.Contains(combined, "↑10") || !strings.Contains(combined, "◐") {
+		t.Fatalf("combined status %q", combined)
+	}
+	if runewidth.StringWidth(combined) > 60 {
+		t.Fatalf("combined wider than width: %q", combined)
+	}
+}
+
+func TestFormatCombinedStatusBar_RightAligned(t *testing.T) {
+	left := "⏳ ↑10 ↓5 · 1.0s · 5.0 tps"
+	right := "◐ 12.3 tps"
+	got := FormatCombinedStatusBar(left, right, 50)
+	if !strings.HasSuffix(got, " | ◐ 12.3 tps") {
+		t.Fatalf("suffix: %q", got)
+	}
+	if runewidth.StringWidth(got) != 50 {
+		t.Fatalf("width=%d got %q", runewidth.StringWidth(got), got)
 	}
 }

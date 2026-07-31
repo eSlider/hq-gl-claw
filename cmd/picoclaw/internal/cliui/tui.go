@@ -27,11 +27,12 @@ func PanesEnabled() bool {
 type AgentTUI struct {
 	prompt string
 
-	progress *widgets.Paragraph // bottom-right: emoji / streaming
+	progressText string // right segment of bottom status bar (spinner / tps)
+
 	result   *widgets.Paragraph
 	sessions *widgets.List
 	input    *widgets.TextArea
-	status   *widgets.Paragraph // bottom-left: turn metrics
+	status   *widgets.Paragraph // full-width: metrics/activity | progress
 	help     *widgets.Paragraph // Ctrl+H / F1 shortcut overlay
 
 	mu        sync.Mutex
@@ -96,10 +97,6 @@ func newParagraph(title string) *widgets.Paragraph {
 
 // NewAgentTUI builds the interactive TUI (not yet initialized on the terminal).
 func NewAgentTUI(prompt string) *AgentTUI {
-	progress := newParagraph("")
-	progress.Text = "ready"
-	progress.TextStyle = ui.NewStyle(colorProgress)
-
 	result := newParagraph("")
 	result.WrapText = false
 
@@ -131,7 +128,7 @@ func NewAgentTUI(prompt string) *AgentTUI {
 
 	return &AgentTUI{
 		prompt:       prompt,
-		progress:     progress,
+		progressText: "ready",
 		result:       result,
 		sessions:     sessions,
 		input:        input,
@@ -168,7 +165,6 @@ func (t *AgentTUI) applyChromeLocked() {
 	setWidgetRect(t.sessions, c.Sessions)
 	setWidgetRect(t.input, c.Input)
 	setWidgetRect(t.status, c.Status)
-	setWidgetRect(t.progress, c.Progress)
 	if t.help != nil {
 		hw, hh := HelpOverlaySize(t.width, t.height)
 		setWidgetRect(t.help, CenterRect(t.width, t.height, hw, hh))
@@ -192,7 +188,6 @@ func (t *AgentTUI) highlightFocusLocked() {
 	t.sessions.BorderStyle.Fg = idle.Fg
 	t.input.BorderStyle.Fg = idle.Fg
 	t.status.BorderStyle.Fg = idle.Fg
-	t.progress.BorderStyle.Fg = idle.Fg
 	switch t.focus {
 	case FocusResult:
 		t.result.BorderStyle.Fg = active.Fg
@@ -205,13 +200,23 @@ func (t *AgentTUI) highlightFocusLocked() {
 	t.refreshStatusLocked()
 }
 
+func (t *AgentTUI) statusInnerWidthLocked() int {
+	dx := t.status.Inner.Dx()
+	if dx < 2 {
+		c := ComputeChrome(t.width, t.height, t.inputRows)
+		return c.Status.W - 2
+	}
+	return dx
+}
+
 func (t *AgentTUI) refreshStatusLocked() {
 	activity := FormatActivityLine(
 		t.activityPhase, t.activityDetail, t.activityStarted, t.activityTick, time.Now(),
 	)
-	t.status.Text = FormatStatusBar(
+	left := FormatStatusBar(
 		t.last, t.session, t.focus.String(), FormatEndpoint(t.endpoint), activity,
 	)
+	t.status.Text = FormatCombinedStatusBar(left, t.progressText, t.statusInnerWidthLocked())
 }
 
 // SetActivity publishes a long-running background phase into the status pane.
@@ -313,11 +318,12 @@ func (t *AgentTUI) SetEndpoint(ep EndpointInfo) {
 	t.requestRedraw()
 }
 
-// SetProgressText sets the bottom-right progress cell (e.g. model switch ack).
+// SetProgressText sets the right-aligned progress segment (e.g. model switch ack).
 func (t *AgentTUI) SetProgressText(s string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.progress.Text = s
+	t.progressText = s
+	t.refreshStatusLocked()
 	t.requestRedraw()
 }
 
@@ -737,9 +743,9 @@ func (t *AgentTUI) renderAll() {
 	t.mu.Unlock()
 	ui.Clear()
 	if showHelp {
-		ui.Render(t.result, t.sessions, t.input, t.status, t.progress, t.help)
+		ui.Render(t.result, t.sessions, t.input, t.status, t.help)
 	} else {
-		ui.Render(t.result, t.sessions, t.input, t.status, t.progress)
+		ui.Render(t.result, t.sessions, t.input, t.status)
 	}
 }
 
@@ -802,7 +808,8 @@ func (t *AgentTUI) Run(handler func(PaneEvent) error) error {
 				}
 				if err != nil {
 					t.mu.Lock()
-					t.progress.Text = fmt.Sprintf("⚠️ %v", err)
+					t.progressText = fmt.Sprintf("⚠️ %v", err)
+					t.refreshStatusLocked()
 					t.mu.Unlock()
 				}
 				t.busy.Store(false)
@@ -1115,7 +1122,8 @@ func (t *AgentTUI) finishResultSelect(e ui.Event) bool {
 	if text != "" {
 		CopyToClipboard(text)
 		t.mu.Lock()
-		t.progress.Text = "📋 copied"
+		t.progressText = "📋 copied"
+		t.refreshStatusLocked()
 		t.mu.Unlock()
 	}
 	return true

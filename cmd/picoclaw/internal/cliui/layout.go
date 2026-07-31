@@ -6,13 +6,11 @@ type Rect struct {
 }
 
 // Chrome holds layout rectangles for the interactive agent TUI.
-// Progress shares the bottom row with Status (right corner under sessions).
 type Chrome struct {
 	Result   Rect
 	Sessions Rect
 	Input    Rect
-	Status   Rect // bottom-left: turn/session metrics
-	Progress Rect // bottom-right: emoji / streaming progress
+	Status   Rect // full-width bottom bar: metrics/activity | progress
 }
 
 const (
@@ -67,7 +65,6 @@ func ComputeChrome(width, height, inputRows int) Chrome {
 		Result:   Rect{X: 0, Y: 0, W: resultW, H: resultH},
 		Sessions: Rect{X: resultW, Y: 0, W: sessW, H: resultH},
 		Input:    Rect{X: 0, Y: resultH, W: width, H: inputRows},
-		Status:   Rect{X: 0, Y: bottomY, W: resultW, H: statusH},
-		Progress: Rect{X: resultW, Y: bottomY, W: sessW, H: statusH},
+		Status:   Rect{X: 0, Y: bottomY, W: width, H: statusH},
 	}
 }

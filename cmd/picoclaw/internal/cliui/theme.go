@@ -8,9 +8,8 @@ import ui "github.com/metaspartan/gotui/v5"
 // glanceable visual language: one accent color for "active", one set of
 // arrows for request/response, bg colors for the sessions list.
 var (
-	colorAccent   = ui.ColorCyan  // focused pane border / active session
-	colorIdle     = ui.ColorWhite // unfocused pane border
-	colorProgress = ui.ColorYellow
+	colorAccent = ui.ColorCyan  // focused pane border / active session
+	colorIdle   = ui.ColorWhite // unfocused pane border
 )
 
 // Session list glyphs. A single glyph per concept; rows are flat (no tree lines).

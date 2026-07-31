@@ -2,7 +2,10 @@ package cliui
 
 import (
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // TurnMetrics holds per request/response token and timing stats.
@@ -107,6 +110,32 @@ func FormatStatusBar(last TurnMetrics, sess SessionMetrics, focus string, extras
 		out += " · " + parts[i]
 	}
 	return out
+}
+
+// FormatCombinedStatusBar renders a single bottom line: left metrics/activity,
+// separator, and right-aligned progress (spinner / tps / done).
+func FormatCombinedStatusBar(left, right string, width int) string {
+	right = strings.TrimSpace(right)
+	if right == "" {
+		return left
+	}
+	if width < 8 {
+		return left + " | " + right
+	}
+	sep := " | "
+	rightW := runewidth.StringWidth(right)
+	sepW := runewidth.StringWidth(sep)
+	leftW := runewidth.StringWidth(left)
+	need := leftW + sepW + rightW
+	if need <= width {
+		pad := width - need
+		return left + strings.Repeat(" ", pad) + sep + right
+	}
+	maxLeftW := width - sepW - rightW
+	if maxLeftW < 1 {
+		return right
+	}
+	return runewidth.Truncate(left, maxLeftW, "…") + sep + right
 }
 
 func formatTok(prefix string, n int, exact bool) string {

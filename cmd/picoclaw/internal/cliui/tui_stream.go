@@ -77,7 +77,7 @@ func (s *PaneStreamer) Start(prompt string) {
 		Streaming:    true,
 		Elapsed:      0,
 	}
-	s.ui.progress.Text = EmojiProgress(0)
+	s.ui.progressText = EmojiProgress(0)
 	s.ui.refreshStatusLocked()
 	s.ui.mu.Unlock()
 	s.ui.requestRedraw()
@@ -116,13 +116,13 @@ func (s *PaneStreamer) animateProgress(stop <-chan struct{}, done chan struct{})
 				if !firstAt.IsZero() {
 					gen = time.Since(firstAt)
 				}
-				s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", spin, TPS(outTok, gen))
+				s.ui.progressText = fmt.Sprintf("%s %.1f tps", spin, TPS(outTok, gen))
 			case reasonTok > 0:
-				s.ui.progress.Text = fmt.Sprintf(
+				s.ui.progressText = fmt.Sprintf(
 					"%s think %s", SpinnerFrame(tick), formatElapsed(elapsed),
 				)
 			default:
-				s.ui.progress.Text = EmojiProgress(tick)
+				s.ui.progressText = EmojiProgress(tick)
 			}
 			s.ui.last = m
 			if s.ui.activityPhase != ActivityIdle || s.ui.activityDetail != "" {
@@ -221,7 +221,7 @@ func (s *PaneStreamer) Update(_ context.Context, content string) error {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPlainLocked(content)
-	s.ui.progress.Text = fmt.Sprintf("%s %.1f tps", SpinnerFrame(0), TPS(m.CompletionTokens, gen))
+	s.ui.progressText = fmt.Sprintf("%s %.1f tps", SpinnerFrame(0), TPS(m.CompletionTokens, gen))
 	s.ui.last = m
 	s.ui.refreshStatusLocked()
 	s.ui.mu.Unlock()
@@ -252,7 +252,7 @@ func (s *PaneStreamer) UpdateReasoning(_ context.Context, content string) error 
 	// Keep answer pane on think text until the first answer token arrives.
 	if !s.streamed.Load() {
 		s.ui.setResultPlainLocked("thinking\n\n" + content)
-		s.ui.progress.Text = fmt.Sprintf(
+		s.ui.progressText = fmt.Sprintf(
 			"%s think %s", SpinnerFrame(0), formatElapsed(elapsed),
 		)
 	}
@@ -315,7 +315,7 @@ func (s *PaneStreamer) Finish(content string) {
 
 	s.ui.mu.Lock()
 	s.ui.setResultPrettyLocked(last)
-	s.ui.progress.Text = fmt.Sprintf("● %.1f tps", TPS(m.CompletionTokens, m.GenDuration()))
+	s.ui.progressText = fmt.Sprintf("● %.1f tps", TPS(m.CompletionTokens, m.GenDuration()))
 	s.ui.activityPhase = ActivityIdle
 	s.ui.activityDetail = ""
 	s.ui.activityStarted = time.Time{}

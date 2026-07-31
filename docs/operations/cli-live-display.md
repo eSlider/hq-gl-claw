@@ -24,16 +24,16 @@ streaming stays plain text.
 │                                │ │     ↓ response   │
 ├───────────────────────────────────┴──────────────────┤
 │ input (TextArea, UTF-8 / Cyrillic)                   │
-├───────────────────────────────────┬──────────────────┤
-│ ✓ ↑in ↓out · tps · Σ · focus      │ ◐ thinking…      │
-└───────────────────────────────────┴──────────────────┘
+├──────────────────────────────────────────────────────┤
+│ ✓ ↑in ↓out · tps · Σ · focus          │ ◐ thinking…  │
+└──────────────────────────────────────────────────────┘
 ```
 
-Bottom row: **status** (left — turn metrics + live activity) shares the corner with
-**progress** (right — ◐ spinner / streaming tps / done). While a turn runs, status
-shows the current background phase (`llm model`, `tool name`, `compress`,
-`subagent`) with elapsed time so long tool/API gaps are visible. The result pane
-shows a `│`/`█` scrollbar on the right edge when content overflows the viewport.
+Bottom **status bar** (full width): turn metrics + live activity on the left,
+progress (◐ spinner / streaming tps / `● done`) on the right, separated by ` | `.
+While a turn runs, the left side also shows the current background phase (`llm model`,
+`tool name`, `compress`, `subagent`) with elapsed time so long tool/API gaps are visible.
+The result pane shows a `│`/`█` scrollbar on the right edge when content overflows the viewport.
 
 ### Sessions list
 
@@ -90,9 +90,9 @@ else newest `cli:<nano>`, else `cli:default`. Force with `-s KEY`.
 | Esc / Ctrl+C | Quit (Esc first closes help if open) |
 | `exit` / `quit` | Quit from input |
 
-Waiting for a reply: **◐◓◑◒** spinner in the bottom-right progress cell
+Waiting for a reply: **◐◓◑◒** spinner on the right of the bottom status bar
 for the **whole turn** (including tool gaps after the first token),
-then `● done`. Left status keeps ↑↓ metrics with `⏳` while streaming.
+then `● done`. Metrics on the left keep ↑↓ counts with `⏳` while streaming.
 
 Bottom status: last turn ↑sent / ↓received, wall time, completion tps,
 optional ttft, session Σ, **model · api host**, focus name.

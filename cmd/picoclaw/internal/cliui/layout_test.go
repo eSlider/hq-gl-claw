@@ -7,9 +7,6 @@ func TestChrome_80x24(t *testing.T) {
 	if c.Status.H != 3 {
 		t.Fatalf("status H=%d", c.Status.H)
 	}
-	if c.Progress.H != 3 {
-		t.Fatalf("progress H=%d", c.Progress.H)
-	}
 	if c.Input.H != 3 {
 		t.Fatalf("input H=%d", c.Input.H)
 	}
@@ -29,14 +26,11 @@ func TestChrome_80x24(t *testing.T) {
 	if c.Sessions.H != c.Result.H {
 		t.Fatalf("sessions H=%d should match result H=%d", c.Sessions.H, c.Result.H)
 	}
-	if c.Status.Y != c.Progress.Y {
-		t.Fatalf("status and progress must share bottom row")
+	if c.Status.X != 0 || c.Status.W != 80 {
+		t.Fatalf("status should span full width: X=%d W=%d", c.Status.X, c.Status.W)
 	}
-	if c.Progress.X != c.Sessions.X || c.Progress.W != c.Sessions.W {
-		t.Fatalf("progress should sit under sessions column")
-	}
-	if c.Status.X+c.Status.W != c.Progress.X {
-		t.Fatalf("status should abut progress: status ends %d progress X %d", c.Status.X+c.Status.W, c.Progress.X)
+	if c.Status.Y != c.Input.Y+c.Input.H {
+		t.Fatalf("status should sit below input: status Y=%d input ends %d", c.Status.Y, c.Input.Y+c.Input.H)
 	}
 }
 
@@ -63,7 +57,7 @@ func TestHitTestPane_NoTopStats(t *testing.T) {
 	if HitTestPane(c, c.Result.X+1, 0) != FocusResult {
 		t.Fatal("top-left should be result")
 	}
-	if HitTestPane(c, c.Progress.X+1, c.Progress.Y+1) != FocusNone {
-		t.Fatal("progress corner is not a focus pane")
+	if HitTestPane(c, c.Status.X+1, c.Status.Y+1) != FocusNone {
+		t.Fatal("status bar is not a focus pane")
 	}
 }
