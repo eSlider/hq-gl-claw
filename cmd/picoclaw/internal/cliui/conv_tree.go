@@ -1,7 +1,6 @@
 package cliui
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -218,9 +217,13 @@ func SubmitParent(selected *ConvNode) *ConvNode {
 }
 
 // FlattenConvTree produces visible rows with tree-drawing labels.
-// expanded[id]==false collapses children; missing key defaults to true for
-// the current session's nodes and false for other sessions' deep nodes —
-// pass explicit map; if nil, all expanded.
+//
+// Icon rules (no duplicates):
+//   - Session: "● title" (or "▶ ● title" when collapsed with children)
+//   - Request / response: "├─↑ text" / "└─↓ text" — kind glyph once; "▶" only if collapsed
+//
+// expanded[id]==false collapses children. Missing keys default to expanded for
+// the current session and collapsed for other sessions' roots.
 func FlattenConvTree(root *ConvNode, currentKey string, titleWidth int, expanded map[string]bool) []SessionTreeRow {
 	if root == nil {
 		return nil
@@ -231,41 +234,38 @@ func FlattenConvTree(root *ConvNode, currentKey string, titleWidth int, expanded
 	var out []SessionTreeRow
 	var walk func(n *ConvNode, depth int, prefix string, isLast bool)
 	walk = func(n *ConvNode, depth int, prefix string, isLast bool) {
-		exp := true
+		exp := n.Session == currentKey
 		if expanded != nil {
 			if v, ok := expanded[n.ID]; ok {
 				exp = v
 			} else if n.Kind == TreeRowSession {
-				exp = n.Session == currentKey
+				if v, ok := expanded[n.Session]; ok {
+					exp = v
+				} else {
+					exp = n.Session == currentKey
+				}
 			}
 		}
-		label := nodeLabel(n, exp, titleWidth, currentKey)
-		branch := ""
-		if depth > 0 {
-			if isLast {
-				branch = "└─ "
-			} else {
-				branch = "├─ "
-			}
-		}
+		hasKids := len(n.Children) > 0
+		label := formatNodeRow(n, prefix, depth, isLast, exp, hasKids, titleWidth, currentKey)
 		out = append(out, SessionTreeRow{
 			Kind:       n.Kind,
 			SessionKey: n.Session,
-			Label:      prefix + branch + label,
+			Label:      label,
 			Content:    n.Content,
 			Expanded:   exp,
 			Depth:      depth,
 			NodeID:     n.ID,
 		})
-		if !exp || len(n.Children) == 0 {
+		if !exp || !hasKids {
 			return
 		}
 		childPrefix := prefix
 		if depth > 0 {
 			if isLast {
-				childPrefix += "   "
+				childPrefix += "  "
 			} else {
-				childPrefix += "│  "
+				childPrefix += "│ "
 			}
 		}
 		for i, c := range n.Children {
@@ -276,35 +276,140 @@ func FlattenConvTree(root *ConvNode, currentKey string, titleWidth int, expanded
 	return out
 }
 
-func nodeLabel(n *ConvNode, exp bool, titleWidth int, currentKey string) string {
-	twist := "▶"
-	if exp && len(n.Children) > 0 {
-		twist = "▼"
-	}
-	if len(n.Children) == 0 {
-		twist = "·"
+// formatNodeRow builds one list row; truncates to titleWidth runes.
+func formatNodeRow(n *ConvNode, prefix string, depth int, isLast, exp, hasKids bool, titleWidth int, currentKey string) string {
+	var b strings.Builder
+	b.WriteString(prefix)
+	if depth > 0 {
+		if isLast {
+			b.WriteString("└")
+		} else {
+			b.WriteString("├")
+		}
+		// Collapsed non-leaf: show ▶ in the connector slot; else ─.
+		if hasKids && !exp {
+			b.WriteString("▶")
+		} else {
+			b.WriteString("─")
+		}
+	} else if hasKids && !exp {
+		b.WriteString("▶ ")
 	}
 	switch n.Kind {
 	case TreeRowSession:
-		mark := " "
+		mark := "○"
 		if n.Session == currentKey {
 			mark = "●"
 		}
-		title := TruncateTitle(n.Content, titleWidth)
-		if title == "" {
-			title = "(empty)"
-		}
-		return fmt.Sprintf("%s %s %s", twist, mark, title)
+		b.WriteString(mark)
+		b.WriteByte(' ')
+		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
 	case TreeRowRequest:
-		return fmt.Sprintf("%s ↑ %s", twist, TruncateTitle(n.Content, titleWidth-2))
+		b.WriteString("↑")
+		b.WriteByte(' ')
+		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
 	case TreeRowResponse:
-		return fmt.Sprintf("%s ↓ %s", twist, TruncateTitle(n.Content, titleWidth-2))
+		b.WriteString("↓")
+		b.WriteByte(' ')
+		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
 	default:
-		return TruncateTitle(n.Content, titleWidth)
+		b.WriteString(TruncateTitle(n.Content, titleWidth))
+	}
+	return b.String()
+}
+
+func runeWidthApprox(s string) int {
+	return len([]rune(s))
+}
+
+// DeepestTip returns the rightmost deepest node (follow last child).
+func DeepestTip(root *ConvNode) *ConvNode {
+	if root == nil {
+		return nil
+	}
+	n := root
+	for len(n.Children) > 0 {
+		n = n.Children[len(n.Children)-1]
+	}
+	return n
+}
+
+// ExpandAncestors marks node and all parents expanded.
+func ExpandAncestors(expanded map[string]bool, node *ConvNode) {
+	if expanded == nil || node == nil {
+		return
+	}
+	for n := node; n != nil; n = n.Parent {
+		expanded[n.ID] = true
+		if n.Kind == TreeRowSession {
+			expanded[n.Session] = true
+		}
 	}
 }
 
 // FormatTreeRowLabel returns the pre-formatted label (connectors already in Label).
 func FormatTreeRowLabel(row SessionTreeRow) string {
 	return row.Label
+}
+
+// ReconcileConvTree appends any trailing history turns not already represented
+// in the tree (keeps existing branches; extends the deepest tip spine).
+func ReconcileConvTree(root *ConvNode, msgs []ChatMessage, gen *idGen) {
+	if root == nil {
+		return
+	}
+	if gen == nil {
+		gen = &idGen{}
+	}
+	existing := PathMessages(DeepestTip(root))
+	if len(msgs) <= len(existing) {
+		return
+	}
+	// Rebuild spine from full history only when tree is a pure spine with no branches.
+	if !hasBranching(root) {
+		fresh := BuildConvTreeFromHistory(root.Session, root.Content, msgs, gen)
+		root.Children = fresh.Children
+		for _, c := range root.Children {
+			c.Parent = root
+		}
+		return
+	}
+	extra := msgs[len(existing):]
+	tip := DeepestTip(root)
+	// Attach remaining pairs under tip (if tip is response/session) or tip.Parent.
+	attachAt := tip
+	if tip.Kind == TreeRowRequest {
+		attachAt = tip.Parent
+		if attachAt == nil {
+			attachAt = root
+		}
+	}
+	for _, turn := range PairTurns(extra) {
+		if turn.Request != "" {
+			req := AttachRequest(attachAt, turn.Request, gen)
+			attachAt = req
+		}
+		if turn.Response != "" && attachAt != nil && attachAt.Kind == TreeRowRequest {
+			resp := AttachResponse(attachAt, turn.Response, gen)
+			attachAt = resp
+		}
+	}
+}
+
+func hasBranching(n *ConvNode) bool {
+	if n == nil {
+		return false
+	}
+	if n.Kind == TreeRowResponse && len(n.Children) > 1 {
+		return true
+	}
+	if n.Kind == TreeRowSession && len(n.Children) > 1 {
+		return true
+	}
+	for _, c := range n.Children {
+		if hasBranching(c) {
+			return true
+		}
+	}
+	return false
 }

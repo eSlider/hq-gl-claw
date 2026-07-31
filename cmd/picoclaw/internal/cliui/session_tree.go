@@ -94,14 +94,25 @@ func BuildSessionTreeRows(
 			root = BuildConvTreeFromHistory(it.Key, it.Title, msgs, gen)
 			forest[it.Key] = root
 		} else {
-			// Refresh session title from item.
 			root.Content = it.Title
+			if src != nil {
+				ReconcileConvTree(root, src.GetHistory(it.Key), gen)
+			}
 		}
 		// Honor session-key collapse in expanded map.
+		sessionCollapsed := false
 		if expanded != nil {
 			if v, ok := expanded[it.Key]; ok {
 				expanded[root.ID] = v
+				sessionCollapsed = !v
 			}
+			if v, ok := expanded[root.ID]; ok && !v {
+				sessionCollapsed = true
+			}
+		}
+		// Keep the active spine visible unless the session is collapsed.
+		if it.Key == currentKey && expanded != nil && !sessionCollapsed {
+			ExpandAncestors(expanded, DeepestTip(root))
 		}
 		out = append(out, FlattenConvTree(root, currentKey, titleWidth, expanded)...)
 	}

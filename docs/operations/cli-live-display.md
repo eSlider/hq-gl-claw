@@ -36,11 +36,11 @@ Bottom row: **status** (left, turn/session metrics) shares the corner with **pro
 Root leaves are **sessions**. Nested structure:
 
 ```
-▼ ● session title
-└─ ▼ ↑ request
-   └─ ▼ ↓ response
-      ├─ ↑ follow-up A
-      └─ ↑ follow-up B   ← branching under a response
+● session title
+└─↑ request
+  └─↓ response
+    ├─↑ follow-up A
+    └─↑ follow-up B   ← branching under a response
 ```
 
 Rules:

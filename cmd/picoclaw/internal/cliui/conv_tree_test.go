@@ -100,20 +100,49 @@ func TestFlattenConvTree_Connectors(t *testing.T) {
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "hi"},
 		{Role: "user", Content: "next"},
+		{Role: "assistant", Content: "ok"},
 	}, nil)
 	rows := FlattenConvTree(root, "cli:t", 40, nil)
-	if len(rows) < 4 {
+	if len(rows) < 5 {
 		t.Fatalf("rows=%d", len(rows))
 	}
 	joined := ""
 	for _, r := range rows {
 		joined += r.Label + "\n"
 	}
-	if !strings.Contains(joined, "└─") && !strings.Contains(joined, "├─") {
+	if !strings.Contains(joined, "├") && !strings.Contains(joined, "└") {
 		t.Fatalf("expected tree connectors: %s", joined)
 	}
-	// Depth nesting: request depth 1, response depth 2, next request depth 3
-	if rows[1].Depth != 1 || rows[2].Depth != 2 || rows[3].Depth != 3 {
-		t.Fatalf("depths: %d %d %d", rows[1].Depth, rows[2].Depth, rows[3].Depth)
+	// No duplicate twisty+arrow icons.
+	for _, r := range rows {
+		if strings.Contains(r.Label, "▼") || strings.Contains(r.Label, "· ↑") || strings.Contains(r.Label, "▼ ↑") {
+			t.Fatalf("duplicate/obsolete icons in %q", r.Label)
+		}
+	}
+	// Depth nesting continues past level 2.
+	if rows[1].Depth != 1 || rows[2].Depth != 2 || rows[3].Depth != 3 || rows[4].Depth != 4 {
+		t.Fatalf("depths: %d %d %d %d", rows[1].Depth, rows[2].Depth, rows[3].Depth, rows[4].Depth)
+	}
+	// Indent must grow (visible nesting).
+	if !strings.HasPrefix(rows[3].Label, "  ") && !strings.Contains(rows[3].Label, "│") {
+		t.Fatalf("depth-3 should be indented: %q", rows[3].Label)
+	}
+}
+
+func TestFlattenConvTree_NoDuplicateKindGlyphs(t *testing.T) {
+	root := BuildConvTreeFromHistory("cli:t", "t", []ChatMessage{
+		{Role: "user", Content: "q"},
+		{Role: "assistant", Content: "a"},
+	}, nil)
+	rows := FlattenConvTree(root, "cli:t", 40, nil)
+	// Session: ● title — Request: └↑ — Response: └↓ or ├↓
+	if !strings.Contains(rows[0].Label, "●") {
+		t.Fatalf("session=%q", rows[0].Label)
+	}
+	if strings.Count(rows[1].Label, "↑") != 1 {
+		t.Fatalf("request icons=%q", rows[1].Label)
+	}
+	if strings.Count(rows[2].Label, "↓") != 1 {
+		t.Fatalf("response icons=%q", rows[2].Label)
 	}
 }

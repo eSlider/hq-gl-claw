@@ -333,7 +333,8 @@ func (t *AgentTUI) rebuildTreeLocked() {
 		t.sessionLister, t.currentKey, tw, t.forest, t.treeExpanded, &t.idGen, t.retainKeyListLocked()...,
 	)
 	t.treeRows = rows
-	// Prefer keeping selected node; else current session row.
+	// Prefer keeping selected node; else tip of current session (not root),
+	// so the next submit nests under the latest response.
 	sel := 0
 	found := false
 	for i, r := range t.treeRows {
@@ -341,6 +342,24 @@ func (t *AgentTUI) rebuildTreeLocked() {
 			sel = i
 			found = true
 			break
+		}
+	}
+	if !found {
+		if tip := DeepestTip(t.forest[t.currentKey]); tip != nil {
+			t.selectedID = tip.ID
+			ExpandAncestors(t.treeExpanded, tip)
+			// Re-flatten once so ancestors are expanded in rows.
+			rows, t.forest = BuildSessionTreeRows(
+				t.sessionLister, t.currentKey, tw, t.forest, t.treeExpanded, &t.idGen, t.retainKeyListLocked()...,
+			)
+			t.treeRows = rows
+			for i, r := range t.treeRows {
+				if r.NodeID == t.selectedID {
+					sel = i
+					found = true
+					break
+				}
+			}
 		}
 	}
 	if !found {
@@ -375,14 +394,15 @@ func (t *AgentTUI) CompleteRequest(requestNodeID, response string) {
 	}
 	resp := AttachResponse(req, response, &t.idGen)
 	if resp != nil {
-		t.treeExpanded[req.ID] = true
-		t.treeExpanded[resp.ID] = true
+		ExpandAncestors(t.treeExpanded, resp)
 		t.selectedID = resp.ID
 	}
 	// Refresh session title from last request.
 	root.Content = sessionTitleFromTree(root)
 	t.rebuildTreeLocked()
-	t.setTranscriptLocked(PathMessages(resp))
+	if resp != nil {
+		t.setTranscriptLocked(PathMessages(resp))
+	}
 	t.requestRedraw()
 }
 
