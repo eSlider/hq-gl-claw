@@ -21,12 +21,15 @@ Result
   g G             top / bottom
   drag-select     copy selection to clipboard
 
-Sessions tree
+Sessions list
   j k  ↑↓         move · preview ↑/↓ in result
   Enter  l  →     open / activate (never closes on click)
   h  ←            collapse node
   n               new session
   hover ↑↓        thin-box highlight + scroll to turn
+
+List colors
+  navy session · lightgreen ↑ · indigo ↓ · yellow cursor
 
 Tree rules
   ● session → ↑ request → ↓ response → ↑ …

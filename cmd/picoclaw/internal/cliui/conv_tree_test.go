@@ -95,7 +95,7 @@ func TestPathMessages(t *testing.T) {
 	}
 }
 
-func TestFlattenConvTree_Connectors(t *testing.T) {
+func TestFlattenConvTree_FlatList(t *testing.T) {
 	root := BuildConvTreeFromHistory("cli:t", "hello", []ChatMessage{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "hi"},
@@ -109,23 +109,19 @@ func TestFlattenConvTree_Connectors(t *testing.T) {
 	joined := ""
 	for _, r := range rows {
 		joined += r.Label + "\n"
-	}
-	if !strings.Contains(joined, "├") && !strings.Contains(joined, "└") {
-		t.Fatalf("expected tree connectors: %s", joined)
-	}
-	// No duplicate twisty+arrow icons.
-	for _, r := range rows {
-		if strings.Contains(r.Label, "▼") || strings.Contains(r.Label, "· ↑") || strings.Contains(r.Label, "▼ ↑") {
-			t.Fatalf("duplicate/obsolete icons in %q", r.Label)
+		if strings.ContainsAny(r.Label, "├└│") {
+			t.Fatalf("tree connectors in flat list: %q", r.Label)
 		}
 	}
-	// Depth nesting continues past level 2.
-	if rows[1].Depth != 1 || rows[2].Depth != 2 || rows[3].Depth != 3 || rows[4].Depth != 4 {
-		t.Fatalf("depths: %d %d %d %d", rows[1].Depth, rows[2].Depth, rows[3].Depth, rows[4].Depth)
+	// Depth still tracked for logic; labels stay left-aligned (no indent).
+	if rows[1].Depth != 1 || rows[2].Depth != 2 {
+		t.Fatalf("depths: %d %d", rows[1].Depth, rows[2].Depth)
 	}
-	// Indent must grow (visible nesting).
-	if !strings.HasPrefix(rows[3].Label, "  ") && !strings.Contains(rows[3].Label, "│") {
-		t.Fatalf("depth-3 should be indented: %q", rows[3].Label)
+	if strings.HasPrefix(rows[3].Label, " ") {
+		t.Fatalf("expected no indent: %q", rows[3].Label)
+	}
+	if !strings.Contains(joined, "●") || !strings.Contains(joined, "↑") || !strings.Contains(joined, "↓") {
+		t.Fatalf("missing glyphs: %s", joined)
 	}
 }
 
@@ -135,7 +131,6 @@ func TestFlattenConvTree_NoDuplicateKindGlyphs(t *testing.T) {
 		{Role: "assistant", Content: "a"},
 	}, nil)
 	rows := FlattenConvTree(root, "cli:t", 40, nil)
-	// Session: ● title — Request: └↑ — Response: └↓ or ├↓
 	if !strings.Contains(rows[0].Label, "●") {
 		t.Fatalf("session=%q", rows[0].Label)
 	}
@@ -144,5 +139,20 @@ func TestFlattenConvTree_NoDuplicateKindGlyphs(t *testing.T) {
 	}
 	if strings.Count(rows[2].Label, "↓") != 1 {
 		t.Fatalf("response icons=%q", rows[2].Label)
+	}
+}
+
+func TestStyleSessionRow_VisibleContrast(t *testing.T) {
+	plain := StyleSessionRow("● hello", TreeRowSession, false, 12)
+	if !strings.Contains(plain, "bg:navy") || !strings.Contains(plain, "fg:white") {
+		t.Fatalf("session style: %q", plain)
+	}
+	req := StyleSessionRow("↑ ask", TreeRowRequest, false, 0)
+	if !strings.Contains(req, "bg:lightgreen") || !strings.Contains(req, "fg:black") {
+		t.Fatalf("request style: %q", req)
+	}
+	sel := StyleSessionRow("↓ ans", TreeRowResponse, true, 0)
+	if !strings.Contains(sel, "bg:yellow") || !strings.Contains(sel, "fg:black") {
+		t.Fatalf("selected style: %q", sel)
 	}
 }

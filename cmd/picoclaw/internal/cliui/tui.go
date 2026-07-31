@@ -99,7 +99,7 @@ func NewAgentTUI(prompt string) *AgentTUI {
 	sessions.Title = "sessions"
 	sessions.Border = true
 	sessions.BorderRounded = true
-	sessions.SelectedStyle = ui.NewStyle(ui.ColorBlack, colorAccent)
+	sessions.SelectedStyle = ui.NewStyle(ui.ColorBlack, ui.ColorYellow)
 
 	input := widgets.NewTextArea()
 	input.Title = inputHint
@@ -567,8 +567,9 @@ func (t *AgentTUI) refreshSessionsViewLocked() {
 		end = n
 	}
 	rows := make([]string, 0, end-t.treeTop)
+	colW := maxInt(8, t.sessions.Inner.Dx())
 	for i := t.treeTop; i < end; i++ {
-		rows = append(rows, FormatTreeRowLabel(t.treeRows[i]))
+		rows = append(rows, FormatSessionListRow(t.treeRows[i], i == t.treeSel, colW))
 	}
 	t.sessions.Rows = rows
 	t.sessions.SelectedRow = t.treeSel - t.treeTop

@@ -216,11 +216,11 @@ func SubmitParent(selected *ConvNode) *ConvNode {
 	}
 }
 
-// FlattenConvTree produces visible rows with tree-drawing labels.
+// FlattenConvTree produces visible rows as a flat list (no tree connectors).
 //
 // Icon rules (no duplicates):
 //   - Session: "● title" (or "▶ ● title" when collapsed with children)
-//   - Request / response: "├─↑ text" / "└─↓ text" — kind glyph once; "▶" only if collapsed
+//   - Request / response: "↑ text" / "↓ text"
 //
 // expanded[id]==false collapses children. Missing keys default to expanded for
 // the current session and collapsed for other sessions' roots.
@@ -232,8 +232,8 @@ func FlattenConvTree(root *ConvNode, currentKey string, titleWidth int, expanded
 		titleWidth = 8
 	}
 	var out []SessionTreeRow
-	var walk func(n *ConvNode, depth int, prefix string, isLast bool)
-	walk = func(n *ConvNode, depth int, prefix string, isLast bool) {
+	var walk func(n *ConvNode, depth int)
+	walk = func(n *ConvNode, depth int) {
 		exp := n.Session == currentKey
 		if expanded != nil {
 			if v, ok := expanded[n.ID]; ok {
@@ -247,7 +247,7 @@ func FlattenConvTree(root *ConvNode, currentKey string, titleWidth int, expanded
 			}
 		}
 		hasKids := len(n.Children) > 0
-		label := formatNodeRow(n, prefix, depth, isLast, exp, hasKids, titleWidth, currentKey)
+		label := formatNodeRow(n, exp, hasKids, titleWidth, currentKey)
 		out = append(out, SessionTreeRow{
 			Kind:       n.Kind,
 			SessionKey: n.Session,
@@ -260,52 +260,24 @@ func FlattenConvTree(root *ConvNode, currentKey string, titleWidth int, expanded
 		if !exp || !hasKids {
 			return
 		}
-		childPrefix := prefix
-		if depth > 0 {
-			if isLast {
-				childPrefix += "  "
-			} else {
-				childPrefix += "│ "
-			}
-		}
-		for i, c := range n.Children {
-			walk(c, depth+1, childPrefix, i == len(n.Children)-1)
+		for _, c := range n.Children {
+			walk(c, depth+1)
 		}
 	}
-	walk(root, 0, "", true)
+	walk(root, 0)
 	return out
 }
 
-// formatNodeRow builds one list row; truncates to titleWidth runes.
+// formatNodeRow builds one flat list row; truncates to titleWidth runes.
 func formatNodeRow(
 	n *ConvNode,
-	prefix string,
-	depth int,
-	isLast, exp, hasKids bool,
+	exp, hasKids bool,
 	titleWidth int,
 	currentKey string,
 ) string {
 	var b strings.Builder
-	b.WriteString(prefix)
-	if depth > 0 {
-		if isLast {
-			b.WriteString(connectorLast)
-		} else {
-			b.WriteString(connectorMid)
-		}
-		// Collapsed non-leaf: show ▶ in the connector slot; else ─.
-		if hasKids && !exp {
-			b.WriteString(glyphCollapsed)
-		} else {
-			b.WriteString(connectorLine)
-		}
-	} else if hasKids && !exp {
+	if n.Kind == TreeRowSession && hasKids && !exp {
 		b.WriteString(glyphCollapsed + " ")
-	}
-	writeGlyphTitle := func(glyph string) {
-		b.WriteString(glyph)
-		b.WriteByte(' ')
-		b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
 	}
 	switch n.Kind {
 	case TreeRowSession:
@@ -313,14 +285,16 @@ func formatNodeRow(
 		if n.Session == currentKey {
 			mark = glyphSessionActive
 		}
-		writeGlyphTitle(mark)
+		b.WriteString(mark)
+		b.WriteByte(' ')
 	case TreeRowRequest:
-		writeGlyphTitle(glyphRequest)
+		b.WriteString(glyphRequest)
+		b.WriteByte(' ')
 	case TreeRowResponse:
-		writeGlyphTitle(glyphResponse)
-	default:
-		b.WriteString(TruncateTitle(n.Content, titleWidth))
+		b.WriteString(glyphResponse)
+		b.WriteByte(' ')
 	}
+	b.WriteString(TruncateTitle(n.Content, maxInt(4, titleWidth-runeWidthApprox(b.String()))))
 	return b.String()
 }
 
@@ -353,9 +327,36 @@ func ExpandAncestors(expanded map[string]bool, node *ConvNode) {
 	}
 }
 
-// FormatTreeRowLabel returns the pre-formatted label (connectors already in Label).
+// FormatTreeRowLabel returns the plain list label (no color markup).
 func FormatTreeRowLabel(row SessionTreeRow) string {
 	return row.Label
+}
+
+// FormatSessionListRow wraps a row with kind/selection background colors.
+// width pads the visible text so the background fills the list column.
+func FormatSessionListRow(row SessionTreeRow, selected bool, width int) string {
+	return StyleSessionRow(row.Label, row.Kind, selected, width)
+}
+
+// StyleSessionRow applies high-contrast gotui fg/bg markup for list rows.
+func StyleSessionRow(plain string, kind TreeRowKind, selected bool, width int) string {
+	plain = escapeGotuiText(plain)
+	if width > 0 {
+		w := runeWidthApprox(plain)
+		if w < width {
+			plain += strings.Repeat(" ", width-w)
+		}
+	}
+	fg, bg := listStyleSessionFG, listStyleSessionBG
+	switch {
+	case selected:
+		fg, bg = listStyleSelectFG, listStyleSelectBG
+	case kind == TreeRowRequest:
+		fg, bg = listStyleRequestFG, listStyleRequestBG
+	case kind == TreeRowResponse:
+		fg, bg = listStyleResponseFG, listStyleResponseBG
+	}
+	return "[" + plain + "](fg:" + fg + ",bg:" + bg + ")"
 }
 
 // ReconcileConvTree appends any trailing history turns not already represented

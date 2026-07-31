@@ -33,16 +33,25 @@ Bottom row: **status** (left, turn/session metrics) shares the corner with **pro
 (right — ◐ spinner / streaming tps / done). The result pane shows a `│`/`█`
 scrollbar on the right edge when content overflows the viewport.
 
-### Sessions tree
+### Sessions list
 
-Root leaves are **sessions**. Nested structure:
+Rows are a **flat list** (no tree connectors), colored by kind:
+
+- **session** — white on navy (`●` / `○`)
+- **↑ request** — black on light green
+- **↓ response** — white on indigo
+- **cursor** — black on yellow
+
+Collapse with `h` / Left still hides children (`▶` on the session row).
+
+Nested structure (logic only; display is flat):
 
 ```
 ● session title
-└─↑ request
-  └─↓ response
-    ├─↑ follow-up A
-    └─↑ follow-up B   ← branching under a response
+↑ request
+↓ response
+↑ follow-up A
+↑ follow-up B   ← branching under a response
 ```
 
 Rules:
